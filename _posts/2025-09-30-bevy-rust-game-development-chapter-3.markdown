@@ -422,6 +422,14 @@ pub struct AnimationState {
 pub struct AnimationTimer(pub Timer);
 ```
 
+<div style="margin: 20px 0; padding: 15px; background-color: #f8d7da; border-radius: 8px; border-left: 4px solid #dc3545;">
+<em>You might notice we're using boolean flags (<code>is_moving</code>, <code>was_moving</code>, <code>is_jumping</code>, <code>was_jumping</code>) to track animation state. While this works for our current simple case, it's not the best approach for managing state transitions.As your game grows more complex (adding attacks, dodges, climbing, etc.), managing all these boolean combinations becomes error-prone and hard to maintain. 
+<br><br>
+In Chapter 4, we'll learn about the <strong>state machine design pattern</strong>, which provides a much cleaner and more scalable way to handle state transitions. 
+
+For now, we'll use this simpler approach to keep our focus on understanding the animation system fundamentals.</em>
+</div>
+
 ### Frame Calculation
 
 Now we know *which* animation to play (Walk, Run, Jump) and *which* direction the character is facing. But how do we translate that into "show frame 47 from the texture atlas right now"?

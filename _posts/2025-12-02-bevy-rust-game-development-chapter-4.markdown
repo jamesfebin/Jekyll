@@ -816,7 +816,7 @@ pub fn on_state_change_update_animation(
 
 This is the change detection we discussed earlier! The query only returns entities whose `CharacterState` changed since last frame. No manual tracking needed.
 
-**Why check `controller.current_animation != new_animation` if Changed already filters?**
+**Why check `controller.current_animation != new_animation` if `Changed` already filters?**
 
 Because multiple states can map to the same animation. Look at the match: both `Idle` and `Walking` use `AnimationType::Walk`. If the player transitions from `Idle` to `Walking`, `Changed<CharacterState>` fires (state changed), but the animation type stays `Walk`. Without this guard, we'd reset the timer and cause a visual stutter even though we're playing the same animation.
 
@@ -1586,9 +1586,18 @@ This hints to the compiler that these small, frequently-called functions should 
     }
 ```
 
-**Why does `grid_to_world` return the center?** 
+**Understanding `grid_to_world`**
 
-If tile (3, 7) spans pixels 96-127, the center is at pixel 112. The `+ 0.5` adds half a tile to get from the corner to the center. This is useful for placing sprites exactly in the middle of tiles.
+This function does the opposite of `world_to_grid`: it takes grid coordinates like (3, 7) and converts them back to a world position. 
+
+Notice the `+ 0.5` in the code—this returns the **center** of the tile rather than its corner. If tile (3, 7) spans pixels 96-127, adding 0.5 gives us the center at pixel 112:
+
+```
+origin_x + (grid_x * tile_size)        // ← This gives the left edge (96)
+origin_x + (grid_x + 0.5) * tile_size  // ← This gives the center (112)
+```
+
+This is useful because when you spawn a sprite in Bevy, its `Transform` position represents its center point by default. So `grid_to_world` gives you the exact position to place entities that should be visually centered in their tiles.
 
 Now add tile access methods. Here's how they fit together:
 
