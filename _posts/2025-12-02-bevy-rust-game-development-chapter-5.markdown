@@ -303,7 +303,7 @@ pub fn handle_pickups(
         commands.entity(entity).despawn();
         let count = inventory.add(kind);
         info!(
-            "📦 Picked up {} (total: {}) — inventory: {}",
+            " Picked up {} (total: {}) — inventory: {}",
             kind, count, inventory.summary()
         );
     }
@@ -815,9 +815,9 @@ cargo run
 Walk near a plant or mushroom. It should disappear, and you'll see a log message:
 
 ```
-📦 Picked up Herb (total: 1) — inventory: Herb: 1
-📦 Picked up Flower (total: 1) — inventory: Flower: 1, Herb: 1
-📦 Picked up Herb (total: 2) — inventory: Flower: 1, Herb: 2
+ Picked up Herb (total: 1) — inventory: Herb: 1
+ Picked up Flower (total: 1) — inventory: Flower: 1, Herb: 1
+ Picked up Herb (total: 2) — inventory: Flower: 1, Herb: 2
 ```
 
 ```comic
