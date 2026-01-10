@@ -17,7 +17,7 @@ og_image: /assets/book_assets/chapter5/ch5.gif
 }
 </style>
 
-By the end of this chapter, you'll have an inventory system that lets your player collect items from the world. Walk near a plant or mushroom, and it disappears into your inventory. Simple, satisfying, and the foundation for crafting systems, quest items, and more.
+By the end of this chapter, you'll have an inventory system that lets your player collect items from the world. Walk near a plant or mushroom, and it disappears into your inventory. 
 
 > **Prerequisites**: This is Chapter 5 of our Bevy tutorial series. [Join our community](https://discord.com/invite/cD9qEsSjUH) for updates on new releases. Before starting, complete [Chapter 1: Let There Be a Player](/posts/bevy-rust-game-development-chapter-1/), [Chapter 2: Let There Be a World](/posts/bevy-rust-game-development-chapter-2/), [Chapter 3: Let The Data Flow](/posts/bevy-rust-game-development-chapter-3/), and [Chapter 4: Let There Be Collisions](/posts/bevy-rust-game-development-chapter-4/), or clone the Chapter 4 code from [this repository](https://github.com/jamesfebin/ImpatientProgrammerBevyRust) to follow along.
 
@@ -27,19 +27,9 @@ By the end of this chapter, you'll have an inventory system that lets your playe
 <strong>Before We Begin:</strong> <em style="font-size: 14px;">I'm constantly working to improve this tutorial and make your learning journey enjoyable. Your feedback matters - share your frustrations, questions, or suggestions on <a href="https://www.reddit.com/r/bevy/" target="_blank">Reddit</a>/<a target="_blank" href="https://discord.com/invite/cD9qEsSjUH">Discord</a>/<a href="https://www.linkedin.com/in/febinjohnjames" target="_blank">LinkedIn</a>. Loved it? Let me know what worked well for you! Together, we'll make game development with Rust and Bevy more accessible for everyone.</em>
 </div>
 
-//Todo people are not dumb, they know what's a pickupable, rewrite this question and answer.
-## What Makes Something Pickable?
+## Building the Pickup System
 
-In Chapter 4, we built a collision system that prevents the player from walking through trees and water. But what about items you *want* to interact with? Plants, mushrooms, treasure chests—things that should disappear when you touch them and go into your inventory.
-
-The difference is simple:
-- **Collision**: "You can't go through this"
-- **Pickup**: "You can collect this"
-
-```comic
-left_guy_smile: I walked into a tree and collected it!
-right_girl_angry: That's not how physics works. Or inventory systems.
-```
+In Chapter 4, we made solid objects block the player. Now let's do the opposite: make items the player can walk through and collect. 
 
 ### The Pickup System
 
@@ -65,7 +55,6 @@ Player: {
 Detection: {
   shape: rectangle
   label: |md
-    **Pickup System**
     - Calculate distance
     - Check if within radius
   |
@@ -74,7 +63,6 @@ Detection: {
 Collection: {
   shape: rectangle
   label: |md
-    **Collection**
     - Despawn item entity
     - Add to inventory
   |
@@ -83,7 +71,6 @@ Collection: {
 Storage: {
   shape: rectangle
   label: |md
-    **Inventory Resource**
     - Track item counts
     - Display summary
   |
@@ -91,16 +78,12 @@ Storage: {
 
 Player -> Detection: "Distance check"
 Detection -> Collection: "Within radius"
-Collection -> Storage: "Update counts"
+Collection -> Storage: "Update inventory"
 ```
 
-## Configuring Pickup Radius
+### Configuring Pickup Radius
 
 Before we build the inventory, let's add configuration for pickup detection. We already have a `config.rs` file from Chapter 4 where we centralized collision settings. Let's add pickup configuration there.
-
-**Why centralize configuration?**
-
-Remember from Chapter 3 when we moved character data into a `.ron` file? Same principle. Instead of scattering magic numbers like `40.0` throughout your code, you put them in one place. Want to make pickups easier? Change one number, not hunt through five files.
 
 Open `src/config.rs` and you'll see it's organized into modules: `player`, `map`, `debug`. Let's add a `pickup` module:
 
@@ -114,29 +97,22 @@ pub mod pickup {
 }
 ```
 
-**What's a "world unit"?**
+**What's a world unit?**
 
 In Bevy, positions are measured in world units. Our tiles are 32 units wide (from `map::TILE_SIZE`), so a radius of 40 units means the player can pick up items from slightly more than one tile away. Not too far (no vacuuming items from across the map), not too close (no pixel-perfect positioning required).
 
 ```comic
 left_girl_sad: I set the radius to 1000 and now I'm collecting everything on screen!
-right_guy_laugh: Congratulations, you invented telekinesis!
+right_guy_laugh: Magneto's origin story: one typo away from world domination.
 ```
 
 ## Building the Inventory System
 
-Create a new folder `src/inventory/` with three files:
-
-```
-inventory/
-├── inventory.rs  ← Item types and storage
-├── systems.rs    ← Pickup detection logic
-├── mod.rs        ← Plugin that ties it together
-```
+Create a new folder `src/inventory/` for our inventory module.
 
 ### Defining Item Types
 
-What kinds of items can the player collect? In our game, we have plants, mushrooms, and tree stumps scattered around the map. Each needs a unique identifier.
+What kinds of items can the player collect? In our game, we have plants, mushrooms(or something that looks like a mushroom), and tree stumps scattered around the map. Each needs a unique identifier.
 
 Create `src/inventory/inventory.rs`:
 
@@ -159,16 +135,6 @@ pub enum ItemKind {
 }
 ```
 
-**Why an enum instead of strings?**
-
-You could use `String` and store `"Plant1"`, `"Plant2"`, etc. But enums are better:
-- **Type safety**: The compiler prevents typos. `ItemKind::Plant1` works, `ItemKind::Plantt1` doesn't compile.
-- **Memory efficiency**: An enum is just a number (0, 1, 2...), not a heap-allocated string.
-- **Exhaustive matching**: When you `match` on an enum, the compiler forces you to handle all cases.
-
-**What's `Hash` doing here?**
-
-We'll use `ItemKind` as a key in a `HashMap` to count items. `Hash` lets Rust convert the enum into a hash value for fast lookups. Without it, you couldn't use `ItemKind` as a HashMap key.
 
 ### Display Names
 
@@ -196,13 +162,11 @@ impl fmt::Display for ItemKind {
 }
 ```
 
-**What's `&'static str`?**
-
-The `'static` lifetime means this string lives for the entire program. `"Herb"` is a string literal baked into your binary, so it never gets freed. Returning `&'static str` is cheap—just a pointer, no allocation.
-
 **What's `fmt::Display` for?**
 
-This trait lets you use `{}` in format strings. Now you can write `println!("Collected: {}", item_kind)` and it prints "Herb" instead of "Plant1". The `Display` implementation just calls our `display_name` method.
+`fmt::Display`  is like a predefined contract Rust makes with your type. It's like saying, "If you implement this trait, I'll let you use `{}` in print statements."
+
+Without it, `println!("Collected: {}", item_kind)` would fail to compile. Rust wouldn't know how to convert your `ItemKind::Plant1` into text for display. By implementing `Display`, we fulfill the contract, we tell Rust "when you need to print this, call this `fmt` method I wrote."
 
 ### The Pickable Component
 
@@ -232,13 +196,9 @@ impl Pickable {
 
 Most items use the default radius (40 units), but maybe you want a treasure chest to have a smaller radius (must be right next to it) or a glowing orb to have a larger one (magnetic pull). Storing it in the component gives you flexibility.
 
-**What's `Self` in the constructor?**
-
-`Self` is shorthand for the type you're implementing. Inside `impl Pickable`, `Self` means `Pickable`. It's cleaner than writing `Pickable { kind, radius: DEFAULT_RADIUS }`.
-
 ### The Inventory Resource
 
-Components attach to entities. But the inventory isn't tied to any single entity—it's global game state. That's what Resources are for.
+The inventory persists across the entire game session, it's not tied to any single entity. That's what Resources are for: global game state that any system can access.
 
 ```rust
 // Append to src/inventory/inventory.rs
@@ -252,11 +212,7 @@ pub struct Inventory {
 
 **Why `HashMap<ItemKind, u32>` instead of `Vec<ItemKind>`?**
 
-A `Vec` would store every individual item: `[Plant1, Plant1, Plant2, Plant1...]`. To count how many Plant1s you have, you'd scan the whole list. A `HashMap` stores counts directly: `{Plant1: 3, Plant2: 1}`. Adding an item is O(1), not O(n).
-
-**What's `Default` doing?**
-
-`#[derive(Default)]` generates a `Default::default()` implementation that creates an empty HashMap. When we register the resource with `.init_resource::<Inventory>()`, Bevy calls `Default::default()` to create the initial inventory.
+A `Vec` would store every individual item: `[Plant1, Plant1, Plant2, Plant1...]`. To count how many Plant1s you have, you'd scan the whole list. A `HashMap` stores counts directly: `{Plant1: 3, Plant2: 1}`. It also makes lookups efficient.
 
 ### Adding Items
 
@@ -303,8 +259,8 @@ So the pickup system can log "Picked up Herb (total: 3)". It's a small quality-o
 It formats the inventory for display: "Herb: 3, Flower: 1, Wood: 2". We sort the items alphabetically so the order is consistent. Later, you could show this in a UI panel or debug overlay.
 
 ```comic
-left_guy_surprised: My inventory says "Herb: 47, Flower: 2"!
-right_girl_laugh: Someone's been stress-collecting plants instead of fighting enemies!
+left_guy_smile: I collected 50 herbs but forgot to save before the boss fight.
+right_girl_laugh: Speedrunning heartbreak, I see.
 ```
 
 ## Pickup Detection System
@@ -358,14 +314,6 @@ Let's break this down step by step.
 
 ### Getting the Player Position
 
-```rust
-let Ok(player_transform) = player_query.single() else {
-    return;
-};
-
-let player_pos = player_transform.translation.truncate();
-```
-
 We query for the player's `Transform` (filtered by `With<Player>`). `.single()` returns `Result` because there might be zero or multiple players. If it fails, we exit early.
 
 **What's `.truncate()`?**
@@ -373,14 +321,6 @@ We query for the player's `Transform` (filtered by `With<Player>`). `.single()` 
 `Transform.translation` is a `Vec3` (x, y, z). We're in 2D, so we only care about x and y. `.truncate()` converts `Vec3` to `Vec2`, dropping the z component.
 
 ### Distance Calculation
-
-```rust
-let distance_sq = player_pos.distance_squared(item_pos);
-
-if distance_sq <= pickable.radius * pickable.radius {
-    collected.push((entity, pickable.kind));
-}
-```
 
 **Why `distance_squared` instead of `distance`?**
 
@@ -393,29 +333,281 @@ This is a common game dev optimization. When checking hundreds of items every fr
 
 **Why collect items into a `Vec` first?**
 
-We can't despawn entities while iterating over the query—Bevy's borrow checker prevents it. So we collect `(entity, kind)` pairs first, then despawn them in a second loop.
+Remember in Chapter 1 when we learned about `mut`? That was just the beginning. Rust has more rules about how you can access and modify data, enforced by something called the **borrow checker**.
 
-### Processing Collected Items
+**Why does Rust need a borrow checker?**
+
+Let's start with a fundamental problem: when should we free memory? When you create a variable in most languages, it allocates memory. When you're done with it, that memory should be freed:
+
+```d2
+direction: right
+
+Create: Create variable\n(allocate) {
+  shape: rectangle
+}
+
+Use: Use variable {
+  shape: rectangle
+}
+
+Free: Free variable\n(cleanup) {
+  shape: rectangle
+}
+
+Create -> Use -> Free
+```
+
+**Languages like Python and JavaScript: Garbage Collection**
+
+In Python or JavaScript, you never explicitly free variables. A *garbage collector* runs periodically, checking which variables are still being used:
+
+```d2
+direction: right
+
+YourCode: Your Code {
+  shape: rectangle
+  label: |md
+    **Code**
+
+
+    x = [1,2,3]
+    
+    y = x
+    
+    x = None
+  |
+}
+
+GC: Garbage Collector {
+  shape: rectangle
+  label: |md
+    **Garbage Collector**
+    
+    Pause program
+    
+    Scan all variables
+    
+    Find unused ones
+    
+    Free their memory
+    
+    Resume program
+  |
+}
+
+YourCode -> GC
+```
+
+This is convenient, you don't think about memory. But it has costs:
+- **Pause times**: The garbage collector must pause your program to scan memory
+- **Overhead**: It tracks every variable at runtime, using extra memory
+- **Unpredictability**: You don't know when pauses happen 
+
+**Rust's Approach: Compile-Time Checks**
+
+Rust takes a different approach. It checks at compile time that your code follows strict rules. When the compiler sees these rules followed, it knows *exactly* when each variable's memory can be freed, no runtime tracking needed:
 
 ```rust
-for (entity, kind) in collected {
-    commands.entity(entity).despawn();
-    let count = inventory.add(kind);
-    info!(
-        "📦 Picked up {} (total: {}) — inventory: {}",
-        kind, count, inventory.summary()
-    );
+// Pseudo code, don't use
+fn example() {
+    let items = vec![1, 2, 3];  // items owns the vector
+    
+    process(items);              // ownership transferred to process()
+                                 // items can't be used anymore
+}  // Compiler inserts cleanup here - no garbage collector!
+```
+
+The borrow checker enforces rules that let the compiler figure out memory lifetimes. Let's learn these rules.
+
+//Todo are there actually three rules or did we make this up? can you find authentic references so we are surely on track here and update it.
+**The Three Borrow Checker Rules**
+
+**Rule 1: Many readers OR one writer, never both**
+
+You can have many immutable references OR one mutable reference, but not both at the same time.
+
+*Why?* Imagine you're reading a map while someone is erasing and redrawing it. You might read half-old, half-new data—corruption! This rule prevents that:
+
+```d2
+direction: down
+
+Safe: Safe (many readers) {
+  shape: rectangle
+  
+  Read1: Read {
+    shape: rectangle
+  }
+  
+  Read2: Read {
+    shape: rectangle
+  }
+  
+  Variable: Variable {
+    shape: rectangle
+  }
+  
+  Read1 -> Variable
+  Read2 -> Variable
+}
+
+Unsafe: Unsafe (reader + writer) {
+  shape: rectangle
+  
+  Read: Read {
+    shape: rectangle
+  }
+  
+  Write: Write {
+    shape: rectangle
+  }
+  
+  Corrupted: Corrupted! {
+    shape: rectangle
+  }
+  
+  Read -> Corrupted
+  Write -> Corrupted
 }
 ```
+
+Example code:
+
+//Todo the following code actually compiles
+
+```rust
+let mut inventory = vec!["Herb", "Flower"];
+
+let reader1 = &inventory;  // ✓ Immutable borrow
+let reader2 = &inventory;  // ✓ Another immutable borrow is fine
+println!("{:?}", reader1); // Both can read
+
+// This won't compile:
+let writer = &mut inventory;  // ✗ ERROR: Can't mutably borrow while 
+                               //   immutably borrowed
+```
+
+**Rule 2: References must always be valid (no dangling pointers)**
+
+A reference can't outlive the data it points to.
+
+*Why?* In C++, you can create a pointer to memory that gets freed, leaving a "dangling pointer." Reading it accesses random memory—crash or worse, subtle corruption:
+//The following code in d2 diagram is confusing as to when x is freed and all.
+```d2
+direction: right
+
+FunctionStarts: Function starts {
+  shape: rectangle
+  label: |md
+    int x = 5;
+
+
+    int* ptr=&x;
+
+
+    return ptr;
+  |
+}
+
+FunctionEnds: Function ends {
+  shape: rectangle
+  label: |md
+    x freed!
+
+
+    ptr still points here
+  |
+}
+
+Oops: Oops! {
+  shape: rectangle
+  label: |md
+    Use ptr
+
+
+    CRASH!
+  |
+}
+
+FunctionStarts -> FunctionEnds -> Oops
+```
+
+Rust prevents this at compile time:
+
+```rust
+fn dangling() -> &String {
+    let s = String::from("hello");
+    &s  // ✗ ERROR: `s` doesn't live long enough
+}  // s is dropped here, but we're trying to return a reference to it!
+```
+
+The compiler rejects this. You must either return the owned value or ensure the reference outlives the data.
+
+**Rule 3: At any time, either one mutable reference OR any number of immutable references**
+
+This is really the same as Rule 1, stated differently for clarity. You can't have `&mut` and `&` active at the same time for the same data.
+
+*Why?* It prevents data races and aliasing bugs:
+
+```rust
+let mut count = 0;
+
+let reader = &count;       // ✓ Immutable borrow
+let writer = &mut count;   // ✗ ERROR: Can't have both
+
+*writer += 1;              // If this compiled, reader would see
+println!("{}", reader);    // inconsistent data
+```
+
+**How this helps with memory management:**
+
+When Rust sees code following these rules, it can prove at compile time that:
+- No variable is used after being freed (Rule 2)
+- No variable is modified while being read (Rules 1 & 3)
+- Memory can be safely freed when the owner goes out of scope
+
+The compiler inserts cleanup code automatically, knowing it's safe. No garbage collector needed!
+
+**How this applies to our code:**
+
+When we write `for (entity, global_transform, pickable) in pickables.iter()`, we're borrowing the entity storage *immutably* to read through it. But `commands.entity(entity).despawn()` needs to *mutably* borrow that same storage to remove entities.
+
+If we tried to do both at once:
+
+```rust
+// This WON'T compile!
+for (entity, _, _) in pickables.iter() {  // ← Immutable borrow starts here
+    commands.entity(entity).despawn();     // ← ERROR: Trying to mutably borrow!
+}
+```
+
+Rust would reject this with: *"cannot borrow as mutable because it is also borrowed as immutable."*
+
+Why? Imagine if it worked: while you're iterating (reading) the list of entities, you're also removing entities from that same list. The iterator might try to read an entity that was just deleted, causing a crash. In C++, this would compile and crash at runtime. In Rust, it doesn't even compile.
+
+**The solution: collect-then-process**
+
+```rust
+let mut collected = Vec::new();
+
+// Step 1: Immutable borrow - just reading
+for (entity, global_transform, pickable) in pickables.iter() {
+    collected.push((entity, pickable.kind));  // Copying entity IDs
+}  // ← Immutable borrow ends here
+
+// Step 2: Mutable borrow - now we can modify
+for (entity, kind) in collected {
+    commands.entity(entity).despawn();  // ✓ Safe! No conflicting borrows
+}
+```
+
+We finish reading before we start writing. The borrow checker is satisfied, and we avoid potential crashes.
+
+### Processing Collected Items
 
 For each collected item:
 1. **Despawn the entity**: Removes it from the world (no more rendering, no more queries)
 2. **Add to inventory**: Updates the count in the HashMap
 3. **Log the pickup**: Prints to console for debugging
-
-**What's `info!`?**
-
-Bevy's logging macro. It prints to the console in development builds. In release builds, you can configure it to write to a file or disable it entirely. The emoji (📦) makes it easy to spot pickup events in the log.
 
 ## Wiring It Together
 
@@ -447,10 +639,6 @@ impl Plugin for InventoryPlugin {
 }
 ```
 
-**Why `.run_if(in_state(GameState::Playing))`?**
-
-We don't want pickups to work during the loading screen or pause menu. This filter ensures `handle_pickups` only runs when the game is in the `Playing` state. We learned about state-based scheduling in Chapter 4.
-
 **What does `.init_resource::<Inventory>()` do?**
 
 It creates the `Inventory` resource by calling `Default::default()` (which creates an empty HashMap) and registers it with Bevy. Now any system can access it with `Res<Inventory>` or `ResMut<Inventory>`.
@@ -474,30 +662,150 @@ Then add the plugin to your app:
 .add_plugins(collision::CollisionPlugin)
 ```
 
-**Does plugin order matter?**
-
-Sometimes. `InventoryPlugin` depends on `GameState` (from `StatePlugin`) and `Player` (from `CharactersPlugin`), so it should come after them. Bevy will warn you if there are dependency issues.
-
 ## Making Items Pickable
 
-Now we have the infrastructure, but no items to pick up! In Chapter 2, we spawned decorative objects like plants and mushrooms. Let's make them collectible.
+Now we have the infrastructure, but no items to pick up! Our procedural map generation system needs to know which decorative objects should be pickable.
 
-Find where you spawn decorative objects (likely in `src/map/decorations.rs` or similar). When spawning a plant, add the `Pickable` component:
+### Updating the Asset Spawner
+
+Open `src/map/assets.rs`. We'll add a method to the `SpawnableAsset` struct that marks an asset as pickable:
 
 ```rust
-// Example: Making a plant pickable
-use crate::inventory::{Pickable, ItemKind};
+// src/map/assets.rs - Add this method to the impl block for SpawnableAsset
 
-commands.spawn((
-    Sprite { /* sprite config */ },
-    Transform::from_xyz(x, y, z),
-    Pickable::new(ItemKind::Plant1),  // Add this line
-));
+/// Make this asset a pickable item.
+pub fn with_pickable(mut self, kind: ItemKind) -> Self {
+    self.pickable = Some(kind);
+    self
+}
 ```
 
-Do this for each decorative object type:
-- `Plant1`, `Plant2`, `Plant3`, `Plant4` → Use corresponding `ItemKind`
-- `TreeStump` → Use `ItemKind::TreeStump`
+This method lets us chain `.with_pickable(ItemKind::Plant1)` when defining spawnable assets.
+
+Next, update the `SpawnableAsset` struct to store the pickable item kind:
+
+```rust
+// src/map/assets.rs - Add this field to SpawnableAsset struct
+
+#[derive(Clone)]
+pub struct SpawnableAsset {
+    sprite_name: &'static str,
+    grid_offset: GridDelta,
+    offset: Vec3,
+    tile_type: Option<TileType>,
+    pickable: Option<ItemKind>,  // Add this line
+}
+```
+
+Update the constructor to initialize this field:
+
+```rust
+// src/map/assets.rs - Update the new() method
+
+impl SpawnableAsset {
+    pub fn new(sprite_name: &'static str) -> Self {
+        Self {
+            sprite_name,
+            grid_offset: GridDelta::new(0, 0, 0),
+            offset: Vec3::ZERO,
+            tile_type: None,
+            pickable: None,  // Add this line
+        }
+    }
+    // ... rest of the methods
+}
+```
+
+### Making the Spawner Attach Components
+
+Now update the spawner function to actually attach `Pickable` components when entities are created. Find the `create_spawner` function in `assets.rs` and add cases for pickable items:
+
+```rust
+// src/map/assets.rs - Update create_spawner function to handle pickables
+
+fn create_spawner(
+    tile_type: Option<TileType>,
+    pickable: Option<ItemKind>,
+) -> fn(&mut EntityCommands) {
+    match (tile_type, pickable) {
+        // Pickable plants with grass tile type
+        (Some(TileType::Grass), Some(ItemKind::Plant1)) => |e: &mut EntityCommands| {
+            e.insert((TileMarker::new(TileType::Grass), Pickable::new(ItemKind::Plant1)));
+        },
+        (Some(TileType::Grass), Some(ItemKind::Plant2)) => |e: &mut EntityCommands| {
+            e.insert((TileMarker::new(TileType::Grass), Pickable::new(ItemKind::Plant2)));
+        },
+        (Some(TileType::Grass), Some(ItemKind::Plant3)) => |e: &mut EntityCommands| {
+            e.insert((TileMarker::new(TileType::Grass), Pickable::new(ItemKind::Plant3)));
+        },
+        (Some(TileType::Grass), Some(ItemKind::Plant4)) => |e: &mut EntityCommands| {
+            e.insert((TileMarker::new(TileType::Grass), Pickable::new(ItemKind::Plant4)));
+        },
+        
+        // Pickable tree stump
+        (None, Some(ItemKind::TreeStump)) => |e: &mut EntityCommands| {
+            e.insert(Pickable::new(ItemKind::TreeStump));
+        },
+        
+        // ... existing cases for non-pickable tiles
+        
+        _ => |_: &mut EntityCommands| {},
+    }
+}
+```
+
+### Marking Props as Pickable
+
+Finally, open `src/map/rules.rs` and find the `build_props_layer` function. This is where decorative objects like plants and stumps are defined. Add `.with_pickable()` to make them collectible:
+
+```rust
+// src/map/rules.rs - Update the plants section in build_props_layer
+
+// Plants - make them all pickable
+terrain_model_builder.create_model(
+    plant_prop.clone(), 
+    vec![SpawnableAsset::new("plant_1")
+        .with_tile_type(TileType::Grass)
+        .with_pickable(ItemKind::Plant1)  // Add this line
+    ]
+);
+terrain_model_builder.create_model(
+    plant_prop.clone(), 
+    vec![SpawnableAsset::new("plant_2")
+        .with_tile_type(TileType::Grass)
+        .with_pickable(ItemKind::Plant2)  // Add this line
+    ]
+);
+terrain_model_builder.create_model(
+    plant_prop.clone(), 
+    vec![SpawnableAsset::new("plant_3")
+        .with_tile_type(TileType::Grass)
+        .with_pickable(ItemKind::Plant3)  // Add this line
+    ]
+);
+terrain_model_builder.create_model(
+    plant_prop.clone(), 
+    vec![SpawnableAsset::new("plant_4")
+        .with_tile_type(TileType::Grass)
+        .with_pickable(ItemKind::Plant4)  // Add this line
+    ]
+);
+
+// Tree stumps - make one variant pickable
+terrain_model_builder.create_model(
+    stump_prop.clone(),
+    vec![SpawnableAsset::new("tree_stump_2")
+        .with_tile_type(TileType::Tree)
+        .with_pickable(ItemKind::TreeStump)  // Add this line
+    ],
+);
+```
+
+**What's happening here?**
+
+We're using the builder pattern to configure each spawnable asset. `.with_tile_type(TileType::Grass)` says "this is grass for collision purposes," and `.with_pickable(ItemKind::Plant1)` says "the player can collect this as a Plant1 item."
+
+Not all tree stumps are pickable—only `tree_stump_2` gets the `.with_pickable()` call. This adds variety to the world: some stumps are just decorative obstacles, others are harvestable resources.
 
 **What if I want some plants to be decorative (not pickable)?**
 
