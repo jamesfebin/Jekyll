@@ -320,7 +320,25 @@ We query for the player's `Transform` (filtered by `With<Player>`). `.single()` 
 
 `Transform.translation` is a `Vec3` (x, y, z). We're in 2D, so we only care about x and y. `.truncate()` converts `Vec3` to `Vec2`, dropping the z component.
 
-### Distance Calculation
+### Collecting Items to Process
+
+Before we can despawn collected items, we need to identify which ones are within pickup range. Here's how we do it:
+
+```rust
+let mut collected = Vec::new();
+
+// Check distance to each pickable
+for (entity, global_transform, pickable) in pickables.iter() {
+    let item_pos = global_transform.translation().truncate();
+    let distance_sq = player_pos.distance_squared(item_pos);
+    
+    if distance_sq <= pickable.radius * pickable.radius {
+        collected.push((entity, pickable.kind));
+    }
+}
+```
+
+We create an empty `Vec` and iterate through all pickable items. For each item within range, we store its entity ID and item kind as a tuple `(entity, pickable.kind)`. This gives us a list of everything the player just picked up.
 
 **Why `distance_squared` instead of `distance`?**
 
@@ -331,7 +349,16 @@ The actual distance formula is `sqrt((x2-x1)² + (y2-y1)²)`. Square root is exp
 
 This is a common game dev optimization. When checking hundreds of items every frame, it adds up.
 
-**Why collect items into a `Vec` first?**
+
+### Processing Collected Items
+
+For each collected item:
+1. **Despawn the entity**: Removes it from the world (no more rendering, no more queries)
+2. **Add to inventory**: Updates the count in the HashMap
+3. **Log the pickup**: Prints to console for debugging
+
+
+**Why collect items into a `Vec` first before despawning them?**
 
 Remember in Chapter 1 when we learned about `mut`? That was just the beginning. Rust has more rules about how you can access and modify data, enforced by something called the **borrow checker**.
 
@@ -362,40 +389,33 @@ Create -> Use -> Free
 In Python or JavaScript, you never explicitly free variables. A *garbage collector* runs periodically, checking which variables are still being used:
 
 ```d2
-direction: right
+direction: down
 
-YourCode: Your Code {
+Program: Your Program Running {
   shape: rectangle
-  label: |md
-    **Code**
-
-
-    x = [1,2,3]
-    
-    y = x
-    
-    x = None
-  |
 }
 
-GC: Garbage Collector {
+Pause: Pause Program {
   shape: rectangle
-  label: |md
-    **Garbage Collector**
-    
-    Pause program
-    
-    Scan all variables
-    
-    Find unused ones
-    
-    Free their memory
-    
-    Resume program
-  |
 }
 
-YourCode -> GC
+Scan: Scan All Variables {
+  shape: rectangle
+}
+
+Identify: Find Unused Ones {
+  shape: rectangle
+}
+
+Free: Free Their Memory {
+  shape: rectangle
+}
+
+Resume: Resume Program {
+  shape: rectangle
+}
+
+Program -> Pause -> Scan -> Identify -> Free -> Resume -> Program
 ```
 
 This is convenient, you don't think about memory. But it has costs:
@@ -419,10 +439,9 @@ fn example() {
 
 The borrow checker enforces rules that let the compiler figure out memory lifetimes. Let's learn these rules.
 
-//Todo are there actually three rules or did we make this up? can you find authentic references so we are surely on track here and update it.
-**The Three Borrow Checker Rules**
+**The Borrowing Rules**
 
-**Rule 1: Many readers OR one writer, never both**
+**Many readers OR one writer, never both**
 
 You can have many immutable references OR one mutable reference, but not both at the same time.
 
@@ -472,68 +491,70 @@ Unsafe: Unsafe (reader + writer) {
 
 Example code:
 
-//Todo the following code actually compiles
-
 ```rust
+// Pseudo code, don't use
 let mut inventory = vec!["Herb", "Flower"];
 
 let reader1 = &inventory;  // ✓ Immutable borrow
 let reader2 = &inventory;  // ✓ Another immutable borrow is fine
 println!("{:?}", reader1); // Both can read
+println!("{:?}", reader2);
 
-// This won't compile:
-let writer = &mut inventory;  // ✗ ERROR: Can't mutably borrow while 
-                               //   immutably borrowed
+// After the immutable borrows are done being used, we can create a mutable borrow:
+let writer = &mut inventory;  // ✓ Now this works
+writer.push("Mushroom");
 ```
 
-**Rule 2: References must always be valid (no dangling pointers)**
+The key insight: borrows end when they're last used, not when they go out of scope. Once `reader1` and `reader2` are done (after the `println!` calls), the mutable borrow is allowed.
+
+This won't compile:
+
+```rust
+// Pseudo code, don't use
+let mut inventory = vec!["Herb", "Flower"];
+
+let reader = &inventory;
+let writer = &mut inventory;  // ✗ ERROR: Can't borrow as mutable while immutably borrowed
+
+println!("{:?}", reader);  // reader still used here
+```
+
+**References must always be valid (no dangling pointers)**
 
 A reference can't outlive the data it points to.
 
-*Why?* In C++, you can create a pointer to memory that gets freed, leaving a "dangling pointer." Reading it accesses random memory—crash or worse, subtle corruption:
-//The following code in d2 diagram is confusing as to when x is freed and all.
-```d2
-direction: right
+*Why?* In C++, you can create a pointer to memory that gets freed, leaving a "dangling pointer." Reading it accesses random memory—crash or worse, subtle corruption.
 
-FunctionStarts: Function starts {
-  shape: rectangle
-  label: |md
-    int x = 5;
+Here's a C++ example that compiles but crashes at runtime:
 
+```cpp
+int* create_dangling_pointer() {
+    int x = 5;           // x is allocated on the stack
+    int* ptr = &x;       // ptr points to x
+    return ptr;          // Return pointer to x
+}  // x goes out of scope here - memory freed!
 
-    int* ptr=&x;
-
-
-    return ptr;
-  |
+int main() {
+    int* ptr = create_dangling_pointer();
+    
+    // ptr now points to freed memory (dangling pointer)
+    std::cout << *ptr;   // CRASH! Reading freed memory
+    
+    return 0;
 }
-
-FunctionEnds: Function ends {
-  shape: rectangle
-  label: |md
-    x freed!
-
-
-    ptr still points here
-  |
-}
-
-Oops: Oops! {
-  shape: rectangle
-  label: |md
-    Use ptr
-
-
-    CRASH!
-  |
-}
-
-FunctionStarts -> FunctionEnds -> Oops
 ```
+
+**What happens:**
+1. Function creates local variable `x` on the stack
+2. Function returns a pointer to `x`
+3. When function exits, `x` is destroyed, but `ptr` still holds its address
+4. Back in `main`, using `ptr` reads memory that's been freed
+5. Result: undefined behavior (crash, garbage data, or worse)
 
 Rust prevents this at compile time:
 
 ```rust
+// Pseudo code, don't use
 fn dangling() -> &String {
     let s = String::from("hello");
     &s  // ✗ ERROR: `s` doesn't live long enough
@@ -542,27 +563,11 @@ fn dangling() -> &String {
 
 The compiler rejects this. You must either return the owned value or ensure the reference outlives the data.
 
-**Rule 3: At any time, either one mutable reference OR any number of immutable references**
-
-This is really the same as Rule 1, stated differently for clarity. You can't have `&mut` and `&` active at the same time for the same data.
-
-*Why?* It prevents data races and aliasing bugs:
-
-```rust
-let mut count = 0;
-
-let reader = &count;       // ✓ Immutable borrow
-let writer = &mut count;   // ✗ ERROR: Can't have both
-
-*writer += 1;              // If this compiled, reader would see
-println!("{}", reader);    // inconsistent data
-```
-
 **How this helps with memory management:**
 
 When Rust sees code following these rules, it can prove at compile time that:
-- No variable is used after being freed (Rule 2)
-- No variable is modified while being read (Rules 1 & 3)
+- No variable is used after being freed 
+- No variable is modified while being read 
 - Memory can be safely freed when the owner goes out of scope
 
 The compiler inserts cleanup code automatically, knowing it's safe. No garbage collector needed!
@@ -574,6 +579,7 @@ When we write `for (entity, global_transform, pickable) in pickables.iter()`, we
 If we tried to do both at once:
 
 ```rust
+// Pseudo code, don't use
 // This WON'T compile!
 for (entity, _, _) in pickables.iter() {  // ← Immutable borrow starts here
     commands.entity(entity).despawn();     // ← ERROR: Trying to mutably borrow!
@@ -582,11 +588,12 @@ for (entity, _, _) in pickables.iter() {  // ← Immutable borrow starts here
 
 Rust would reject this with: *"cannot borrow as mutable because it is also borrowed as immutable."*
 
-Why? Imagine if it worked: while you're iterating (reading) the list of entities, you're also removing entities from that same list. The iterator might try to read an entity that was just deleted, causing a crash. In C++, this would compile and crash at runtime. In Rust, it doesn't even compile.
+Why? Imagine if it worked: while you're iterating (reading) the list of entities, you're also removing entities from that same list. The iterator might try to read an entity that was just deleted, causing a crash.
 
 **The solution: collect-then-process**
 
 ```rust
+// Pseudo code, don't use
 let mut collected = Vec::new();
 
 // Step 1: Immutable borrow - just reading
@@ -601,13 +608,6 @@ for (entity, kind) in collected {
 ```
 
 We finish reading before we start writing. The borrow checker is satisfied, and we avoid potential crashes.
-
-### Processing Collected Items
-
-For each collected item:
-1. **Despawn the entity**: Removes it from the world (no more rendering, no more queries)
-2. **Add to inventory**: Updates the count in the HashMap
-3. **Log the pickup**: Prints to console for debugging
 
 ## Wiring It Together
 
@@ -673,6 +673,8 @@ Open `src/map/assets.rs`. We'll add a method to the `SpawnableAsset` struct that
 ```rust
 // src/map/assets.rs - Add this method to the impl block for SpawnableAsset
 
+// Inside impl SpawnableAsset {
+
 /// Make this asset a pickable item.
 pub fn with_pickable(mut self, kind: ItemKind) -> Self {
     self.pickable = Some(kind);
@@ -713,7 +715,7 @@ impl SpawnableAsset {
         }
     }
     // ... rest of the methods
-}
+
 ```
 
 ### Making the Spawner Attach Components
@@ -723,11 +725,8 @@ Now update the spawner function to actually attach `Pickable` components when en
 ```rust
 // src/map/assets.rs - Update create_spawner function to handle pickables
 
-fn create_spawner(
-    tile_type: Option<TileType>,
-    pickable: Option<ItemKind>,
-) -> fn(&mut EntityCommands) {
-    match (tile_type, pickable) {
+// Inside fn create_spawner(...) -> ... {
+// Inside  match (tile_type, pickable) {
         // Pickable plants with grass tile type
         (Some(TileType::Grass), Some(ItemKind::Plant1)) => |e: &mut EntityCommands| {
             e.insert((TileMarker::new(TileType::Grass), Pickable::new(ItemKind::Plant1)));
@@ -749,9 +748,7 @@ fn create_spawner(
         
         // ... existing cases for non-pickable tiles
         
-        _ => |_: &mut EntityCommands| {},
-    }
-}
+
 ```
 
 ### Marking Props as Pickable
@@ -807,10 +804,6 @@ We're using the builder pattern to configure each spawnable asset. `.with_tile_t
 
 Not all tree stumps are pickable—only `tree_stump_2` gets the `.with_pickable()` call. This adds variety to the world: some stumps are just decorative obstacles, others are harvestable resources.
 
-**What if I want some plants to be decorative (not pickable)?**
-
-Just don't add the `Pickable` component. The pickup system only queries for entities with `Pickable`, so decorative plants are ignored.
-
 ## Testing the Inventory
 
 Run your game:
@@ -828,8 +821,8 @@ Walk near a plant or mushroom. It should disappear, and you'll see a log message
 ```
 
 ```comic
-left_girl_smile: I collected 50 mushrooms in 2 minutes!
-right_guy_surprised: Are you playing the game or speedrunning a grocery store?
+left_girl_smile: I spent 3 hours collecting herbs instead of doing the main quest.
+right_guy_laugh: Ah yes, professional procrastination. A true gamer's specialty.
 ```
 
 ## What's Next?
