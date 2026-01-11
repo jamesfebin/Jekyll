@@ -942,8 +942,6 @@ So we need **two changes**:
 1. First, scale up the world (larger tiles and sprites) for a zoomed-in view
 2. Then, make the camera smoothly follow the player to keep them on screen
 
-### The Plan
-
 We need three things:
 1. **Updated configuration** - Bigger tiles, player scale, and camera settings
 2. **Map generation updates** - Scale sprites 2× larger 

@@ -2962,7 +2962,9 @@ Your character can now walk through a procedurally generated world, colliding re
 In the next chapter, we'll add interactivity: picking up items and building an inventory system. Until then, experiment with the collision parameters, try different collider sizes, and see how the debug visualization helps you understand what's happening under the hood.
 
 <div style="margin: 20px 0; padding: 15px; background-color: #d4edda; border-radius: 8px; border-left: 4px solid #28a745;">
-<strong>Stay Tuned for Chapter 5!</strong> <br> <a href="https://discord.com/invite/cD9qEsSjUH">Join our community</a> to get notified when the next chapter drops and share your collision system creations with fellow developers.
+<strong>Next up: Chapter 5!</strong> <br> <a href="/posts/bevy-rust-game-development-chapter-5/">Chapter 5: Let There Be Pickups</a> 
+<br><br>
+<a href="https://discord.com/invite/cD9qEsSjUH">Join our community</a> to get notified when new chapters drop and share your amazing creations with fellow developers.
 <br><br>
 <strong>Let's stay connected! Here are some ways</strong>
 <ul>
