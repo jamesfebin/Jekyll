@@ -950,12 +950,9 @@ right_guy_laugh: Ah yes, professional procrastination. A true gamer's specialty.
 
 ## Zooming In and Following the Player
 
-Right now, our game window shows the **entire map** at once. While functional, this creates two problems:
+Right now, our game window shows the **entire map** at once. While functional, this has no sense of exploration. You can see everything at a glance, removing the mystery
 
-1. **Everything looks tiny** - The player and props are small and hard to see
-2. **No sense of exploration** - You can see everything at a glance, removing the mystery
-
-The solution? **Zoom in** to show only part of the map, making everything larger and more detailed. But this creates a new problem: if the camera stays fixed and only shows part of the map, the player can walk off-screen and disappear!
+Let's **zoom in** to show only part of the map, making everything larger and more detailed. But this creates a new problem: if the camera stays fixed and only shows part of the map, the player can walk off camera view and disappear!
 
 So we need **two changes**:
 1. First, scale up the world (larger tiles and sprites) for a zoomed-in view
@@ -1014,10 +1011,6 @@ pub mod player {
     /// Collision radius for the player's collider (in world units)
     pub const COLLIDER_RADIUS: f32 = 24.0; // Line update alert
     
-    /// Vertical offset from player center to feet (for ground collision)
-    /// Based on: TILE_SIZE * SCALE / 2 = 64 * 1.2 / 2 = 38.4
-    pub const FEET_OFFSET: f32 = 38.4; // Add this line
-    
     /// Z-position for player rendering (above terrain, below UI)
     pub const PLAYER_Z_POSITION: f32 = 20.0;
     
@@ -1025,10 +1018,6 @@ pub mod player {
     pub const PLAYER_SCALE: f32 = 1.2; // Line update alert (was 0.8)
 }
 ```
-
-**Why change PLAYER_SCALE from 0.8 to 1.2?**
-
-The original 0.8 made the player sprite feel small. Increasing it to 1.2 makes the character more prominent and easier to see. This also affects collision calculations, which is why we added `FEET_OFFSET` - we need to know exactly where the player's feet are for proper depth sorting (walking behind trees).
 
 Now update the map module:
 
@@ -1061,7 +1050,8 @@ Now we need to update `src/map/generate.rs` to use our centralized config values
 Open `src/map/generate.rs` and make these changes:
 
 **1. Update the imports to use config values:**
-
+<br>
+We now import `GRID_X`, `GRID_Y`, `NODE_SIZE_Z`, and `TILE_SIZE` from config instead of defining them locally
 ```rust
 // src/map/generate.rs - Update imports
 use bevy_procedural_tilemaps::prelude::*;
@@ -1077,24 +1067,29 @@ use crate::map::{
 **2. Delete these local constants** (we're using config values now):
 
 ```rust
+// src/map/generate.rs 
 // DELETE THESE LINES:
-pub const GRID_X: u32 = 25;
-pub const GRID_Y: u32 = 18;
-pub const TILE_SIZE: f32 = 32.;
+// DELETE  pub const GRID_X: u32 = 25;
+// DELETE  pub const GRID_Y: u32 = 18;
+// DELETE  pub const TILE_SIZE: f32 = 32.;
 ```
 
 **3. Delete the `map_pixel_dimensions` function** (no longer needed):
 
 ```rust
+// src/map/generate.rs 
 // DELETE THIS ENTIRE FUNCTION:
-pub fn map_pixel_dimensions() -> Vec2 {
-    Vec2::new(TILE_SIZE * GRID_X as f32, TILE_SIZE * GRID_Y as f32)
-}
+// DELETE pub fn map_pixel_dimensions() -> Vec2 {
+// DELETE     Vec2::new(TILE_SIZE * GRID_X as f32, TILE_SIZE * GRID_Y as f32)
+// DELETE }
 ```
 
 **4. Update NODE_SIZE to use the config constant:**
-
+<br>
+Uses `NODE_SIZE_Z` from config for consistency
 ```rust
+// src/map/generate.rs 
+
 // BEFORE:
 const NODE_SIZE: Vec3 = Vec3::new(TILE_SIZE, TILE_SIZE, 1.);
 
@@ -1104,7 +1099,13 @@ const NODE_SIZE: Vec3 = Vec3::new(TILE_SIZE, TILE_SIZE, NODE_SIZE_Z); // Line up
 
 **5. Update ASSETS_SCALE to 2× for larger sprites:**
 
+Change from `Vec3::ONE` (1.0, 1.0, 1.0) to `Vec3::new(2.0, 2.0, 1.0)` to scale sprites 2× larger
+
+Our tilemap uses 32px sprites but we're rendering them at 64px. The 2× scale factor in `ASSETS_SCALE` makes this happen, creating the zoomed-in view.
+
 ```rust
+// src/map/generate.rs 
+
 // BEFORE:
 const ASSETS_SCALE: Vec3 = Vec3::ONE;
 
@@ -1112,22 +1113,12 @@ const ASSETS_SCALE: Vec3 = Vec3::ONE;
 const ASSETS_SCALE: Vec3 = Vec3::new(2.0, 2.0, 1.0); // Line update alert
 ```
 
-**What changed?**
-
-1. **Imports**: We now import `GRID_X`, `GRID_Y`, `NODE_SIZE_Z`, and `TILE_SIZE` from config instead of defining them locally
-2. **Removed duplication**: Deleted local constants and the `map_pixel_dimensions()` function
-3. **NODE_SIZE**: Uses `NODE_SIZE_Z` from config for consistency
-4. **ASSETS_SCALE**: Changed from `Vec3::ONE` (1.0, 1.0, 1.0) to `Vec3::new(2.0, 2.0, 1.0)` to scale sprites 2× larger
-
-The key insight: our tilemap uses 32px sprites but we're rendering them at 64px. The 2× scale factor in `ASSETS_SCALE` makes this happen, creating the zoomed-in view.
-
 ### Building the Camera System
 
 Create a new folder `src/camera/` and add `src/camera/camera.rs`:
 
 ```rust
 // src/camera/camera.rs
-use bevy::camera::Projection; // For camera projection configuration
 use bevy::prelude::*;
 
 use crate::characters::input::Player;
@@ -1138,7 +1129,7 @@ use crate::config::camera::{CAMERA_LERP_SPEED, CAMERA_Z};
 pub struct MainCamera;
 
 /// Spawn the main 2D camera.
-pub(super) fn setup_camera(mut commands: Commands) {
+pub fn setup_camera(mut commands: Commands) {
     commands.spawn((Camera2d::default(), MainCamera));
 }
 
@@ -1146,7 +1137,7 @@ pub(super) fn setup_camera(mut commands: Commands) {
 ///
 /// Uses linear interpolation for smooth movement and snaps to pixel boundaries
 /// to prevent subpixel rendering artifacts (grid shimmer).
-pub(super) fn follow_camera(
+pub fn follow_camera(
     time: Res<Time>,
     player_query: Query<&Transform, (With<Player>, Changed<Transform>)>,
     mut camera_query: Query<&mut Transform, (With<MainCamera>, Without<Player>)>,
@@ -1178,48 +1169,7 @@ pub(super) fn follow_camera(
     camera_transform.translation.y = new_pos.y.round();
     camera_transform.translation.z = CAMERA_Z;
 }
-
-/// Configure camera projection to prevent Z-depth culling issues.
-/// 
-/// Widens the near/far clip planes so objects at various Z depths render correctly.
-/// Runs once at startup.
-pub(super) fn configure_camera_projection(
-    mut camera_query: Query<&mut Projection, (With<Camera2d>, With<MainCamera>)>,
-) {
-    for mut projection in camera_query.iter_mut() {
-        if let Projection::Orthographic(ref mut ortho) = *projection {
-            // Wide clip range prevents Z-depth culling for our layered sprites
-            ortho.near = -2000.0;
-            ortho.far = 2000.0;
-        }
-    }
-}
 ```
-
-**Why do we need camera projection configuration?**
-
-In 3D graphics (and Bevy's 2D is built on 3D), cameras have a "view frustum" - a region of space they can see. Objects outside this region don't render. For a 2D orthographic camera, this is controlled by `near` and `far` clip planes.
-
-By default, Bevy's 2D camera has relatively narrow clip planes. Our game uses Z-depth layering:
-- Player sprite: Z ≈ 20
-- Props/decorations: Z ≈ 4  
-- Camera: Z = 1000
-
-Without adjusting the clip planes, sprites at extreme Z values might get culled (not rendered), causing visual glitches or disappearing sprites.
-
-**What's `Projection::Orthographic`?**
-
-Bevy cameras can use different projection types. `Orthographic` means no perspective distortion (perfect for 2D games where distant objects stay the same size). The `if let` pattern checks if this camera uses orthographic projection, then adjusts its near/far planes.
-
-**Why -2000.0 to 2000.0?**
-
-These values give us a 4000-unit deep view volume, easily covering all our game objects. It's generous enough that we won't hit culling issues as we add more layers.
-
-```comic
-left_guy_anxious: Half my sprites disappeared when I changed their Z position!
-right_girl_surprised: Did you forget to configure the camera projection? Classic rookie mistake!
-```
-
 
 **Breaking it down:**
 
@@ -1236,10 +1186,6 @@ right_girl_surprised: Did you forget to configure the camera projection? Classic
 3. **Lerp calculation**: We calculate how much to move based on `CAMERA_LERP_SPEED` and the time since last frame (`time.delta_secs()`). This gives us smooth movement regardless of frame rate.
 
 4. **Pixel snapping**: `.round()` snaps the position to whole pixels. Without this, the camera can land on fractional pixel coordinates (like 10.3), causing the grid to look jittery. Snapping prevents this "shimmer" effect.
-
-**Why `.truncate()`?**
-
-`Transform.translation` is a `Vec3` (x, y, z), but we only care about x and y for 2D movement. `.truncate()` converts `Vec3` to `Vec2`, dropping the z component.
 
 **Why clamp lerp_factor?**
 
@@ -1271,7 +1217,7 @@ impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
                 Startup,
-                (camera::setup_camera, camera::configure_camera_projection), // Line update alert
+                camera::setup_camera,
             )
             .add_systems(
                 Update,
@@ -1299,9 +1245,9 @@ Open `src/main.rs`. Find and **delete** the `setup_camera` function at the botto
 
 ```rust
 // src/main.rs - DELETE this entire function
-fn setup_camera(mut commands: Commands) {
-    commands.spawn(Camera2d);
-}
+//DELETE fn setup_camera(mut commands: Commands) {
+//DELETE     commands.spawn(Camera2d);
+//DELETE }
 ```
 
 Now update the module declarations and imports:
@@ -1338,7 +1284,7 @@ Now update the `main` function to use the `CameraPlugin` instead of the old `set
 // src/main.rs - Update the main function
 fn main() {
     App::new()
-        .insert_resource(ClearColor(Color::WHITE))
+        .insert_resource(ClearColor(Color::BLACK))
         .add_plugins(
             DefaultPlugins
                 .set(AssetPlugin {
