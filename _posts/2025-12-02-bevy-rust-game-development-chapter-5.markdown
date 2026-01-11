@@ -1,9 +1,9 @@
 ---
 layout: post
 title: "The Impatient Programmer's Guide to Bevy and Rust: Chapter 5 - Let There Be Pickups"
-date: 2026-01-10 00:00:00 +0000
+date: 2026-01-11 00:00:00 +0000
 category: rust
-excerpt: "Build an inventory system and let your player collect items from the world. Learn about Resources, distance calculations, and how to make your game world interactive."
+excerpt: "Build an inventory system to collect items from the world, then zoom in and add smooth camera follow."
 image: /assets/book_assets/chapter5/ch5.gif
 og_image: /assets/book_assets/chapter5/ch5.gif
 ---
@@ -17,7 +17,7 @@ og_image: /assets/book_assets/chapter5/ch5.gif
 }
 </style>
 
-By the end of this chapter, you'll have an inventory system that lets your player collect items from the world. Walk near a plant or mushroom, and it disappears into your inventory. 
+By the end of this chapter, you'll have an inventory system that lets your player collect items from the world, and a smooth camera that follows them around. Walk near a plant or mushroom, and it disappears into your inventory. Move across the map, and the camera keeps you centered with buttery-smooth motion. 
 
 > **Prerequisites**: This is Chapter 5 of our Bevy tutorial series. [Join our community](https://discord.com/invite/cD9qEsSjUH) for updates on new releases. Before starting, complete [Chapter 1: Let There Be a Player](/posts/bevy-rust-game-development-chapter-1/), [Chapter 2: Let There Be a World](/posts/bevy-rust-game-development-chapter-2/), [Chapter 3: Let The Data Flow](/posts/bevy-rust-game-development-chapter-3/), and [Chapter 4: Let There Be Collisions](/posts/bevy-rust-game-development-chapter-4/), or clone the Chapter 4 code from [this repository](https://github.com/jamesfebin/ImpatientProgrammerBevyRust) to follow along.
 
@@ -209,7 +209,7 @@ pub struct Inventory {
 
 A `Vec` would store every individual item: `[Plant1, Plant1, Plant2, Plant1...]`. To count how many Plant1s you have, you'd scan the whole list. A `HashMap` stores counts directly: `{Plant1: 3, Plant2: 1}`. It also makes lookups efficient.
 
-### Adding Items
+### Adding Items to Inventory
 
 Now let's implement the logic to add items to the inventory:
 
@@ -619,7 +619,7 @@ Even though Bevy's Commands doesn't strictly require this pattern (it's deferred
 2. It follows Rust best practices that work everywhere
 3. If we later need to work with non-deferred collections, the pattern still applies
 
-## Wiring It Together
+### Wiring It Together
 
 Create `src/inventory/mod.rs` to expose the inventory system as a plugin:
 
@@ -918,8 +918,6 @@ We're using the builder pattern to configure each spawnable asset. `.with_tile_t
 
 Not all tree stumps are pickable—only `tree_stump_2` gets the `.with_pickable()` call. This adds variety to the world: some stumps are just decorative obstacles, others are harvestable resources.
 
-## Testing the Inventory
-
 Run your game:
 
 ```bash
@@ -1174,7 +1172,7 @@ left_guy_sad: I removed .clamp() to make it "faster." Now my camera goes WHOOSH 
 right_girl_laugh: Congratulations, you invented the hyperdrive. Wrong game though.
 ```
 
-### Camera Module File
+### Camera Module 
 
 Now create `src/camera/mod.rs` to expose the camera systems:
 
@@ -1299,8 +1297,6 @@ fn main() {
 5. Changed to **borderless fullscreen mode** - perfect for our zoomed-in camera view! It uses your full screen, making the zoomed world feel immersive without window borders getting in the way
 6. Changed background to black for a cleaner look
 
-### Testing the Camera
-
 Run your game:
 
 ```bash
@@ -1308,6 +1304,8 @@ cargo run
 ```
 
 Walk around using the arrow keys. Notice how the camera smoothly follows your character instead of staying fixed. The camera should feel responsive but not jarring - that's the lerp in action!
+
+![Inventory System Demo]({{ "/assets/book_assets/chapter5/ch5.gif" | relative_url }})
 
 ```comic
 left_girl_smile: The camera follows me everywhere now! I'm basically a celebrity!
