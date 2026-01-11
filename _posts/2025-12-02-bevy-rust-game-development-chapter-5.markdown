@@ -948,6 +948,462 @@ left_girl_smile: I spent 3 hours collecting herbs instead of doing the main ques
 right_guy_laugh: Ah yes, professional procrastination. A true gamer's specialty.
 ```
 
+## Zooming In and Following the Player
+
+Right now, our game window shows the **entire map** at once. While functional, this creates two problems:
+
+1. **Everything looks tiny** - The player and props are small and hard to see
+2. **No sense of exploration** - You can see everything at a glance, removing the mystery
+
+The solution? **Zoom in** to show only part of the map, making everything larger and more detailed. But this creates a new problem: if the camera stays fixed and only shows part of the map, the player can walk off-screen and disappear!
+
+So we need **two changes**:
+1. First, scale up the world (larger tiles and sprites) for a zoomed-in view
+2. Then, make the camera smoothly follow the player to keep them on screen
+
+### The Plan
+
+We need three things:
+1. **Updated configuration** - Bigger tiles, player scale, and camera settings
+2. **Map generation updates** - Scale sprites 2× larger 
+3. **Camera system** - Logic to smoothly track the player
+
+### Updating the Config
+
+Our `config.rs` file already has `player`, `pickup`, and `map` modules. Let's add camera configuration.
+
+Open `src/config.rs` and add this new module after the `map` module:
+I
+```rust
+// src/config.rs - Add this after the map module
+
+/// Camera configuration
+pub mod camera {
+    /// How fast the camera interpolates toward the player (higher = snappier)
+    pub const CAMERA_LERP_SPEED: f32 = 6.0;
+    
+    /// Z position for the camera (must be high to see all layers)
+    pub const CAMERA_Z: f32 = 1000.0;
+}
+```
+
+**Why these values?**
+
+`CAMERA_LERP_SPEED` controls how quickly the camera catches up to the player. A value of 6.0 means the camera closes 60% of the distance each second. Higher values make the camera snappier (instantly follows), lower values make it lag behind (cinematic feel).
+
+`CAMERA_Z` must be high enough to see all game layers. Our player is around Z=20, props are around Z=4, and we need the camera above everything to render the scene.
+
+**What's "lerp"?**
+
+"Lerp" is short for **linear interpolation**. It's a smooth transition between two values. Instead of jumping from point A to point B instantly, lerp gradually moves from A to B over time.
+
+Think of it like this: if the camera is at position (0, 0) and the player is at (100, 0), with a lerp factor of 0.6, the camera moves to (60, 0) in the first frame. Next frame, the player is still at (100, 0), but the camera is at (60, 0), so it moves 60% of the remaining distance (40 units) to (84, 0). It keeps closing the gap smoothly until it catches up.
+
+```comic
+left_guy_anxious: My camera is drunk! It's swaying behind me!
+right_girl_laugh: That's not a bug, that's your CAMERA_LERP_SPEED set to 0.1!
+```
+
+We also need to update some existing values for better scaling. While we're in `config.rs`, let's update the player and map configurations:
+
+```rust
+// src/config.rs - Update the player module
+
+/// Player-related configuration
+pub mod player {
+    /// Collision radius for the player's collider (in world units)
+    pub const COLLIDER_RADIUS: f32 = 24.0; // Line update alert
+    
+    /// Vertical offset from player center to feet (for ground collision)
+    /// Based on: TILE_SIZE * SCALE / 2 = 64 * 1.2 / 2 = 38.4
+    pub const FEET_OFFSET: f32 = 38.4; // Add this line
+    
+    /// Z-position for player rendering (above terrain, below UI)
+    pub const PLAYER_Z_POSITION: f32 = 20.0;
+    
+    /// Visual scale of the player sprite
+    pub const PLAYER_SCALE: f32 = 1.2; // Line update alert (was 0.8)
+}
+```
+
+**Why change PLAYER_SCALE from 0.8 to 1.2?**
+
+The original 0.8 made the player sprite feel small. Increasing it to 1.2 makes the character more prominent and easier to see. This also affects collision calculations, which is why we added `FEET_OFFSET` - we need to know exactly where the player's feet are for proper depth sorting (walking behind trees).
+
+Now update the map module:
+
+```rust
+// src/config.rs - Update the map module
+
+/// Map/terrain configuration
+pub mod map {
+    /// Size of a single tile in world units (64px base * 1.0 scale = 64)
+    /// NOTE: This must match TILE_SIZE in generate.rs!
+    pub const TILE_SIZE: f32 = 64.0; // Line update alert (was 32.0)
+    
+    /// Grid dimensions
+    pub const GRID_X: u32 = 25;
+    pub const GRID_Y: u32 = 18;
+    
+    /// Z-height of each layer (used for Y-based depth sorting)
+    pub const NODE_SIZE_Z: f32 = 1.0; // Add this line
+}
+```
+
+**Why double the TILE_SIZE from 32.0 to 64.0?**
+
+Our original tilemap sprites are 32×32 pixels, but we're scaling them up 2× during rendering to make the world feel bigger and more detailed. By setting `TILE_SIZE` to 64.0, our collision and positioning math matches the visually rendered size, keeping everything consistent.
+
+### Updating Map Generation
+
+Now we need to update `src/map/generate.rs` to use our centralized config values and scale up the sprites.
+
+Open `src/map/generate.rs` and make these changes:
+
+**1. Update the imports to use config values:**
+
+```rust
+// src/map/generate.rs - Update imports
+use bevy_procedural_tilemaps::prelude::*;
+use bevy::prelude::*;
+
+use crate::config::map::{GRID_X, GRID_Y, NODE_SIZE_Z, TILE_SIZE}; // Line update alert
+use crate::map::{
+    assets::{load_assets, prepare_tilemap_handles},
+    rules::build_world,
+};
+```
+
+**2. Delete these local constants** (we're using config values now):
+
+```rust
+// DELETE THESE LINES:
+pub const GRID_X: u32 = 25;
+pub const GRID_Y: u32 = 18;
+pub const TILE_SIZE: f32 = 32.;
+```
+
+**3. Delete the `map_pixel_dimensions` function** (no longer needed):
+
+```rust
+// DELETE THIS ENTIRE FUNCTION:
+pub fn map_pixel_dimensions() -> Vec2 {
+    Vec2::new(TILE_SIZE * GRID_X as f32, TILE_SIZE * GRID_Y as f32)
+}
+```
+
+**4. Update NODE_SIZE to use the config constant:**
+
+```rust
+// BEFORE:
+const NODE_SIZE: Vec3 = Vec3::new(TILE_SIZE, TILE_SIZE, 1.);
+
+// AFTER:
+const NODE_SIZE: Vec3 = Vec3::new(TILE_SIZE, TILE_SIZE, NODE_SIZE_Z); // Line update alert
+```
+
+**5. Update ASSETS_SCALE to 2× for larger sprites:**
+
+```rust
+// BEFORE:
+const ASSETS_SCALE: Vec3 = Vec3::ONE;
+
+// AFTER:
+const ASSETS_SCALE: Vec3 = Vec3::new(2.0, 2.0, 1.0); // Line update alert
+```
+
+**What changed?**
+
+1. **Imports**: We now import `GRID_X`, `GRID_Y`, `NODE_SIZE_Z`, and `TILE_SIZE` from config instead of defining them locally
+2. **Removed duplication**: Deleted local constants and the `map_pixel_dimensions()` function
+3. **NODE_SIZE**: Uses `NODE_SIZE_Z` from config for consistency
+4. **ASSETS_SCALE**: Changed from `Vec3::ONE` (1.0, 1.0, 1.0) to `Vec3::new(2.0, 2.0, 1.0)` to scale sprites 2× larger
+
+The key insight: our tilemap uses 32px sprites but we're rendering them at 64px. The 2× scale factor in `ASSETS_SCALE` makes this happen, creating the zoomed-in view.
+
+### Building the Camera System
+
+Create a new folder `src/camera/` and add `src/camera/camera.rs`:
+
+```rust
+// src/camera/camera.rs
+use bevy::camera::Projection; // For camera projection configuration
+use bevy::prelude::*;
+
+use crate::characters::input::Player;
+use crate::config::camera::{CAMERA_LERP_SPEED, CAMERA_Z};
+
+/// Marker component for the main game camera.
+#[derive(Component)]
+pub struct MainCamera;
+
+/// Spawn the main 2D camera.
+pub(super) fn setup_camera(mut commands: Commands) {
+    commands.spawn((Camera2d::default(), MainCamera));
+}
+
+/// Smoothly follow the player with the camera.
+///
+/// Uses linear interpolation for smooth movement and snaps to pixel boundaries
+/// to prevent subpixel rendering artifacts (grid shimmer).
+pub(super) fn follow_camera(
+    time: Res<Time>,
+    player_query: Query<&Transform, (With<Player>, Changed<Transform>)>,
+    mut camera_query: Query<&mut Transform, (With<MainCamera>, Without<Player>)>,
+) {
+    // Only update when player moves (Changed<Transform>)
+    let Some(player_transform) = player_query.iter().next() else {
+        return;
+    };
+
+    let Ok(mut camera_transform) = camera_query.single_mut() else {
+        return;
+    };
+
+    let player_pos = player_transform.translation.truncate();
+    let camera_pos = camera_transform.translation.truncate();
+
+    // Early exit if camera is already very close (within 0.5 pixels)
+    let distance = player_pos.distance(camera_pos);
+    if distance < 0.5 {
+        return;
+    }
+
+    // Smooth interpolation toward player
+    let lerp_factor = (CAMERA_LERP_SPEED * time.delta_secs()).clamp(0.0, 1.0);
+    let new_pos = camera_pos.lerp(player_pos, lerp_factor);
+
+    // Snap to pixel boundaries to prevent grid shimmer
+    camera_transform.translation.x = new_pos.x.round();
+    camera_transform.translation.y = new_pos.y.round();
+    camera_transform.translation.z = CAMERA_Z;
+}
+
+/// Configure camera projection to prevent Z-depth culling issues.
+/// 
+/// Widens the near/far clip planes so objects at various Z depths render correctly.
+/// Runs once at startup.
+pub(super) fn configure_camera_projection(
+    mut camera_query: Query<&mut Projection, (With<Camera2d>, With<MainCamera>)>,
+) {
+    for mut projection in camera_query.iter_mut() {
+        if let Projection::Orthographic(ref mut ortho) = *projection {
+            // Wide clip range prevents Z-depth culling for our layered sprites
+            ortho.near = -2000.0;
+            ortho.far = 2000.0;
+        }
+    }
+}
+```
+
+**Why do we need camera projection configuration?**
+
+In 3D graphics (and Bevy's 2D is built on 3D), cameras have a "view frustum" - a region of space they can see. Objects outside this region don't render. For a 2D orthographic camera, this is controlled by `near` and `far` clip planes.
+
+By default, Bevy's 2D camera has relatively narrow clip planes. Our game uses Z-depth layering:
+- Player sprite: Z ≈ 20
+- Props/decorations: Z ≈ 4  
+- Camera: Z = 1000
+
+Without adjusting the clip planes, sprites at extreme Z values might get culled (not rendered), causing visual glitches or disappearing sprites.
+
+**What's `Projection::Orthographic`?**
+
+Bevy cameras can use different projection types. `Orthographic` means no perspective distortion (perfect for 2D games where distant objects stay the same size). The `if let` pattern checks if this camera uses orthographic projection, then adjusts its near/far planes.
+
+**Why -2000.0 to 2000.0?**
+
+These values give us a 4000-unit deep view volume, easily covering all our game objects. It's generous enough that we won't hit culling issues as we add more layers.
+
+```comic
+left_guy_anxious: Half my sprites disappeared when I changed their Z position!
+right_girl_surprised: Did you forget to configure the camera projection? Classic rookie mistake!
+```
+
+
+**Breaking it down:**
+
+**MainCamera marker**: Just like we use `Player` to identify the player entity, we use `MainCamera` to find the camera entity.
+
+**setup_camera**: Spawns a 2D camera with the `MainCamera` marker. This runs once at startup.
+
+**follow_camera**: This is where the magic happens. Let's dissect it:
+
+1. **Changed filter**: `Changed<Transform>` means this system only runs when the player's position changes. No movement? No wasted CPU cycles.
+
+2. **Early exits**: If there's no player or no camera, bail out early. Also, if the camera is already within 0.5 pixels of the player, don't bother moving it.
+
+3. **Lerp calculation**: We calculate how much to move based on `CAMERA_LERP_SPEED` and the time since last frame (`time.delta_secs()`). This gives us smooth movement regardless of frame rate.
+
+4. **Pixel snapping**: `.round()` snaps the position to whole pixels. Without this, the camera can land on fractional pixel coordinates (like 10.3), causing the grid to look jittery. Snapping prevents this "shimmer" effect.
+
+**Why `.truncate()`?**
+
+`Transform.translation` is a `Vec3` (x, y, z), but we only care about x and y for 2D movement. `.truncate()` converts `Vec3` to `Vec2`, dropping the z component.
+
+**Why clamp lerp_factor?**
+
+If the frame rate is very slow (say, 2 FPS), `delta_secs()` could be 0.5 seconds. Multiplying by `CAMERA_LERP_SPEED` (6.0) gives 3.0, which would overshoot. `.clamp(0.0, 1.0)` ensures we never move more than 100% of the distance in a single frame.
+
+```comic
+left_guy_smile: Why is my screen shaking like an earthquake?
+right_girl_surprised: You forgot .round()! Welcome to subpixel hell!
+```
+
+### Camera Module File
+
+Now create `src/camera/mod.rs` to expose the camera systems:
+
+```rust
+// src/camera/mod.rs
+mod camera;
+
+use bevy::prelude::*;
+use crate::state::GameState;
+
+// Re-export public items
+pub use camera::MainCamera;
+
+/// Plugin for camera systems.
+pub struct CameraPlugin;
+
+impl Plugin for CameraPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+                Startup,
+                (camera::setup_camera, camera::configure_camera_projection), // Line update alert
+            )
+            .add_systems(
+                Update,
+                camera::follow_camera.run_if(in_state(GameState::Playing)),
+            );
+    }
+}
+```
+
+**What's happening:**
+
+The `CameraPlugin` bundles our camera systems:
+- `setup_camera` runs once at `Startup` to spawn the camera
+- `follow_camera` runs every frame during `Update`, but only when `GameState::Playing`
+
+**Why gate on `GameState::Playing`?**
+
+During the `Loading` state, the player entity might not exist yet. Running `follow_camera` would cause errors. By using `.run_if(in_state(GameState::Playing))`, we ensure the follow system only runs when the game is actually playing.
+
+### Integrating the Camera
+
+Now we wire everything together in `main.rs`. But first, we need to remove the old camera setup.
+
+Open `src/main.rs`. Find and **delete** the `setup_camera` function at the bottom:
+
+```rust
+// src/main.rs - DELETE this entire function
+fn setup_camera(mut commands: Commands) {
+    commands.spawn(Camera2d);
+}
+```
+
+Now update the module declarations and imports:
+
+```rust
+// src/main.rs - Update module declarations at the top
+mod map;
+mod characters;
+mod state; 
+mod collision;
+mod config;
+mod inventory;
+mod camera; // Add this line
+```
+
+Update the imports to include the `CameraPlugin`:
+
+```rust
+// src/main.rs - Update imports
+use bevy::{
+    prelude::*,
+    window::{MonitorSelection, Window, WindowMode, WindowPlugin}, // Line update alert
+};
+
+use bevy_procedural_tilemaps::prelude::*;
+
+use crate::camera::CameraPlugin; // Add this line
+use crate::map::generate::setup_generator; // Line update alert - remove map_pixel_dimensions
+```
+
+Now update the `main` function to use the `CameraPlugin` instead of the old `setup_camera`:
+
+```rust
+// src/main.rs - Update the main function
+fn main() {
+    App::new()
+        .insert_resource(ClearColor(Color::WHITE))
+        .add_plugins(
+            DefaultPlugins
+                .set(AssetPlugin {
+                    file_path: "src/assets".into(),
+                    ..default()
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Bevy Game".into(),
+                        mode: WindowMode::BorderlessFullscreen(MonitorSelection::Current), // Add this line
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(ImagePlugin::default_nearest()),
+        )
+        .add_plugins(ProcGenSimplePlugin::<Cartesian3D, Sprite>::default())
+        .add_plugins(state::StatePlugin)
+        .add_plugins(CameraPlugin) // Add this line
+        .add_plugins(inventory::InventoryPlugin)
+        .add_plugins(collision::CollisionPlugin)
+        .add_plugins(characters::CharactersPlugin)
+        .add_systems(Startup, setup_generator) // Line update alert - remove setup_camera here
+        .run();
+}
+```
+
+**What changed:**
+
+1. Added `mod camera;` to declare the camera module
+2. Imported `CameraPlugin`
+3. Added `.add_plugins(CameraPlugin)` to the app
+4. Removed `setup_camera` from the `Startup` systems (it's now inside `CameraPlugin`)
+
+### Testing the Camera
+
+Run your game:
+
+```bash
+cargo run
+```
+
+Walk around using the arrow keys. Notice how the camera smoothly follows your character instead of staying fixed. The camera should feel responsive but not jarring - that's the lerp in action!
+
+**Test the new features:**
+
+1. **Zoomed View**: Everything should look bigger and more detailed now with the 2× sprite scaling
+2. **Camera Follow**: Walk to different parts of the map - the camera smoothly keeps your character centered
+3. **Smooth Movement**: The camera should feel responsive but not janky, thanks to pixel snapping and lerp
+
+Try experimenting with `CAMERA_LERP_SPEED` in `config.rs`:
+- Set it to `1.0` - camera lazily trails behind (cinematic)
+- Set it to `20.0` - camera snaps instantly to player (tight, arcade feel)
+- Set it to `6.0` - balanced, responsive but smooth (our default)
+
+```comic
+left_girl_smile: The camera follows me now! I feel like a celebrity!
+right_guy_laugh: Wait till you add a dozen fans chasing you. Then you'll feel famous.
+```
+
+
+
+
+
+
 ## What's Next?
 
 You've built a working inventory system! But it's invisible—players can't see what they've collected. In Chapter 6, we'll build a UI overlay that displays the inventory on screen, add item icons, and create a crafting system that combines items into new ones.
