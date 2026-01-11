@@ -99,7 +99,7 @@ pub mod pickup {
 
 **What's a world unit?**
 
-In Bevy, positions are measured in world units. Our tiles are 32 units wide (from `map::TILE_SIZE`), so a radius of 40 units means the player can pick up items from slightly more than one tile away. Not too far (no vacuuming items from across the map), not too close (no pixel-perfect positioning required).
+In Bevy, positions are measured in world units. Our tiles are 32 units wide (from `map::TILE_SIZE`), so a radius of 40 units means the player can pick up items from slightly more than one tile away. Not too far, not too close.
 
 ```comic
 left_girl_sad: I set the radius to 1000 and now I'm collecting everything on screen!
@@ -314,7 +314,7 @@ Let's break this down step by step.
 
 ### Getting the Player Position
 
-We query for the player's `Transform` (filtered by `With<Player>`). `.single()` returns `Result` because there might be zero or multiple players. If it fails, we exit early.
+We query for the player's position as we did in the earlier chapters.
 
 **What's `.truncate()`?**
 
@@ -322,21 +322,7 @@ We query for the player's `Transform` (filtered by `With<Player>`). `.single()` 
 
 ### Collecting Items to Process
 
-Before we can despawn collected items, we need to identify which ones are within pickup range. Here's how we do it:
-
-```rust
-let mut collected = Vec::new();
-
-// Check distance to each pickable
-for (entity, global_transform, pickable) in pickables.iter() {
-    let item_pos = global_transform.translation().truncate();
-    let distance_sq = player_pos.distance_squared(item_pos);
-    
-    if distance_sq <= pickable.radius * pickable.radius {
-        collected.push((entity, pickable.kind));
-    }
-}
-```
+Before we can despawn collected items, we need to identify which ones are within pickup range. 
 
 We create an empty `Vec` and iterate through all pickable items. For each item within range, we store its entity ID and item kind as a tuple `(entity, pickable.kind)`. This gives us a list of everything the player just picked up.
 
@@ -352,7 +338,7 @@ This is a common game dev optimization. When checking hundreds of items every fr
 
 ### Processing Collected Items
 
-For each collected item:
+Later we go through the collected items and do the following:
 1. **Despawn the entity**: Removes it from the world (no more rendering, no more queries)
 2. **Add to inventory**: Updates the count in the HashMap
 3. **Log the pickup**: Prints to console for debugging
@@ -360,9 +346,15 @@ For each collected item:
 
 **Why collect items into a `Vec` first before despawning them?**
 
-Remember in Chapter 1 when we learned about `mut`? That was just the beginning. Rust has more rules about how you can access and modify data, enforced by something called the **borrow checker**.
+You might notice we use a two-step pattern: first collect items into a list, then process them. In our Bevy code, we could actually skip this and despawn directly in the loop, but we follow this pattern because it's a Rust best practice that makes code safer and clearer.
 
-**Why does Rust need a borrow checker?**
+Let's learn why this pattern exists:
+
+**The Borrow Checker**
+
+Remember in Chapter 1, where we learned about how Rust gets mad when we don't put `mut` when declaring a variable we want to change? That was just the beginning. Rust has more rules about how you can access and modify data, enforced by something called the **borrow checker**.
+
+**What's a borrow checker?**
 
 Let's start with a fundamental problem: when should we free memory? When you create a variable in most languages, it allocates memory. When you're done with it, that memory should be freed:
 
@@ -382,6 +374,11 @@ Free: Free variable\n(cleanup) {
 }
 
 Create -> Use -> Free
+```
+
+```comic
+left_guy_anxious: RAM prices went up again!
+right_girl_laugh: Maybe if programs didn't leak memory like a sieve...
 ```
 
 **Languages like Python and JavaScript: Garbage Collection**
@@ -422,6 +419,12 @@ This is convenient, you don't think about memory. But it has costs:
 - **Pause times**: The garbage collector must pause your program to scan memory
 - **Overhead**: It tracks every variable at runtime, using extra memory
 - **Unpredictability**: You don't know when pauses happen 
+
+```comic
+left_girl_smile: Python's garbage collector does all the memory management for me!
+right_guy_surprised: Yeah, and it's using half your RAM to do it.
+```
+
 
 **Rust's Approach: Compile-Time Checks**
 
@@ -563,6 +566,11 @@ fn dangling() -> &String {
 
 The compiler rejects this. You must either return the owned value or ensure the reference outlives the data.
 
+```comic
+left_guy_sad: These borrow checker rules are making my head spin!
+right_girl_laugh: Better a spinning head than a dangling pointer.
+```
+
 **How this helps with memory management:**
 
 When Rust sees code following these rules, it can prove at compile time that:
@@ -572,42 +580,53 @@ When Rust sees code following these rules, it can prove at compile time that:
 
 The compiler inserts cleanup code automatically, knowing it's safe. No garbage collector needed!
 
-**How this applies to our code:**
+**Why This Pattern Exists in General Rust**
 
-When we write `for (entity, global_transform, pickable) in pickables.iter()`, we're borrowing the entity storage *immutably* to read through it. But `commands.entity(entity).despawn()` needs to *mutably* borrow that same storage to remove entities.
-
-If we tried to do both at once:
+In most Rust code (unlike Bevy's special Commands), you can't modify a collection while iterating over it. Here's a real example that won't compile:
 
 ```rust
 // Pseudo code, don't use
-// This WON'T compile!
-for (entity, _, _) in pickables.iter() {  // ← Immutable borrow starts here
-    commands.entity(entity).despawn();     // ← ERROR: Trying to mutably borrow!
+let mut items = vec![1, 2, 3, 4, 5];
+
+for (index, item) in items.iter().enumerate() {  // ← Immutable borrow starts
+    if *item % 2 == 0 {
+        items.remove(index);  // ✗ ERROR: Can't mutably borrow while immutably borrowed!
+    }
 }
 ```
 
-Rust would reject this with: *"cannot borrow as mutable because it is also borrowed as immutable."*
+Rust rejects this with: *"cannot borrow as mutable because it is also borrowed as immutable."*
 
-Why? Imagine if it worked: while you're iterating (reading) the list of entities, you're also removing entities from that same list. The iterator might try to read an entity that was just deleted, causing a crash.
+Why? While `.iter()` is reading through the list, `.remove()` tries to modify it. That's like trying to read a book while someone's tearing pages out—you might try to read a page that's gone!
 
-**The solution: collect-then-process**
+**The Safe Pattern: Collect-Then-Process**
 
 ```rust
 // Pseudo code, don't use
-let mut collected = Vec::new();
+let mut items = vec![1, 2, 3, 4, 5];
+let mut to_remove = Vec::new();
 
-// Step 1: Immutable borrow - just reading
-for (entity, global_transform, pickable) in pickables.iter() {
-    collected.push((entity, pickable.kind));  // Copying entity IDs
-}  // ← Immutable borrow ends here
+// Step 1: Just reading (immutable borrow)
+for (index, item) in items.iter().enumerate() {
+    if *item % 2 == 0 {
+        to_remove.push(index);
+    }
+}  // ← Immutable borrow ends
 
-// Step 2: Mutable borrow - now we can modify
-for (entity, kind) in collected {
-    commands.entity(entity).despawn();  // ✓ Safe! No conflicting borrows
+// Step 2: Now we can modify (mutable borrow)
+for index in to_remove.iter().rev() {  // Remove from back to front
+    items.remove(*index);  // ✓ Safe! No conflicting borrows
 }
 ```
 
-We finish reading before we start writing. The borrow checker is satisfied, and we avoid potential crashes.
+This pattern separates reading from writing. The borrow checker is happy, and we avoid crashes.
+
+**In Our Bevy Code**
+
+Even though Bevy's Commands doesn't strictly require this pattern (it's deferred), we use it anyway because:
+1. It makes our intent clear: "find eligible items" then "process them"
+2. It follows Rust best practices that work everywhere
+3. If we later need to work with non-deferred collections, the pattern still applies
 
 ## Wiring It Together
 
@@ -668,7 +687,14 @@ Now we have the infrastructure, but no items to pick up! Our procedural map gene
 
 ### Updating the Asset Spawner
 
-Open `src/map/assets.rs`. We'll add a method to the `SpawnableAsset` struct that marks an asset as pickable:
+Open `src/map/assets.rs`. First, add the inventory imports at the top of the file:
+
+```rust
+// src/map/assets.rs - Add to the imports section
+use crate::inventory::{ItemKind, Pickable};
+```
+
+Now add a method to the `SpawnableAsset` struct that marks an asset as pickable:
 
 ```rust
 // src/map/assets.rs - Add this method to the impl block for SpawnableAsset
@@ -718,6 +744,54 @@ impl SpawnableAsset {
 
 ```
 
+**Update the asset loading code:**
+
+Since we added a new field to `SpawnableAsset`, we need to update the destructuring pattern in the `load_assets` function:
+
+```rust
+// src/map/assets.rs - Update the destructuring in load_assets function
+
+pub fn load_assets(
+    tilemap_handles: &TilemapHandles,
+    assets_definitions: Vec<Vec<SpawnableAsset>>,
+) -> ModelsAssets<Sprite> {
+    let mut models_assets = ModelsAssets::<Sprite>::new();
+    
+    for (model_index, assets) in assets_definitions.into_iter().enumerate() {
+        for asset_def in assets {
+            let SpawnableAsset {
+                sprite_name,
+                grid_offset,
+                offset,
+                tile_type,
+                pickable, // Add this line
+            } = asset_def;
+
+            let Some(atlas_index) = TILEMAP.sprite_index(sprite_name) else {
+                panic!("Unknown atlas sprite '{}'", sprite_name);
+            };
+
+            // Create the spawner function that adds components
+            let spawner = create_spawner(tile_type, pickable); // Line update alert
+
+            models_assets.add(
+                model_index,
+                ModelAsset {
+                    assets_bundle: tilemap_handles.sprite(atlas_index),
+                    grid_offset,
+                    world_offset: offset,
+                    spawn_commands: spawner,
+                },
+            );
+        }
+    }
+    models_assets
+}
+
+```
+
+
+
 ### Making the Spawner Attach Components
 
 Now update the spawner function to actually attach `Pickable` components when entities are created. Find the `create_spawner` function in `assets.rs` and add cases for pickable items:
@@ -725,9 +799,38 @@ Now update the spawner function to actually attach `Pickable` components when en
 ```rust
 // src/map/assets.rs - Update create_spawner function to handle pickables
 
-// Inside fn create_spawner(...) -> ... {
-// Inside  match (tile_type, pickable) {
-        // Pickable plants with grass tile type
+fn create_spawner(
+    tile_type: Option<TileType>,
+    pickable: Option<ItemKind>,
+) -> fn(&mut EntityCommands) {
+    match (tile_type, pickable) {
+        // Tile types without pickable
+        (Some(TileType::Dirt), None) => |e: &mut EntityCommands| {
+            e.insert(TileMarker::new(TileType::Dirt));
+        },
+        (Some(TileType::Grass), None) => |e: &mut EntityCommands| {
+            e.insert(TileMarker::new(TileType::Grass));
+        },
+        (Some(TileType::YellowGrass), None) => |e: &mut EntityCommands| {
+            e.insert(TileMarker::new(TileType::YellowGrass));
+        },
+        (Some(TileType::Water), None) => |e: &mut EntityCommands| {
+            e.insert(TileMarker::new(TileType::Water));
+        },
+        (Some(TileType::Shore), None) => |e: &mut EntityCommands| {
+            e.insert(TileMarker::new(TileType::Shore));
+        },
+        (Some(TileType::Tree), None) => |e: &mut EntityCommands| {
+            e.insert(TileMarker::new(TileType::Tree));
+        },
+        (Some(TileType::Rock), None) => |e: &mut EntityCommands| {
+            e.insert(TileMarker::new(TileType::Rock));
+        },
+        (Some(TileType::Empty), None) => |e: &mut EntityCommands| {
+            e.insert(TileMarker::new(TileType::Empty));
+        },
+
+        // Pickable plants (with grass tile type)
         (Some(TileType::Grass), Some(ItemKind::Plant1)) => |e: &mut EntityCommands| {
             e.insert((TileMarker::new(TileType::Grass), Pickable::new(ItemKind::Plant1)));
         },
@@ -741,19 +844,39 @@ Now update the spawner function to actually attach `Pickable` components when en
             e.insert((TileMarker::new(TileType::Grass), Pickable::new(ItemKind::Plant4)));
         },
         
-        // Pickable tree stump
+        // Pickable without tile type
+        (None, Some(ItemKind::Plant1)) => |e: &mut EntityCommands| {
+            e.insert(Pickable::new(ItemKind::Plant1));
+        },
+        (None, Some(ItemKind::Plant2)) => |e: &mut EntityCommands| {
+            e.insert(Pickable::new(ItemKind::Plant2));
+        },
+        (None, Some(ItemKind::Plant3)) => |e: &mut EntityCommands| {
+            e.insert(Pickable::new(ItemKind::Plant3));
+        },
+        (None, Some(ItemKind::Plant4)) => |e: &mut EntityCommands| {
+            e.insert(Pickable::new(ItemKind::Plant4));
+        },
         (None, Some(ItemKind::TreeStump)) => |e: &mut EntityCommands| {
             e.insert(Pickable::new(ItemKind::TreeStump));
         },
-        
-        // ... existing cases for non-pickable tiles
-        
 
+        // Default: no components
+        _ => |_: &mut EntityCommands| {},
+    }
+}
 ```
 
 ### Marking Props as Pickable
 
-Finally, open `src/map/rules.rs` and find the `build_props_layer` function. This is where decorative objects like plants and stumps are defined. Add `.with_pickable()` to make them collectible:
+Finally, open `src/map/rules.rs`. First, add the import at the top:
+
+```rust
+// src/map/rules.rs - Add to the imports section
+use crate::inventory::ItemKind;
+```
+
+Now find the `build_props_layer` function. This is where decorative objects like plants and stumps are defined. Add `.with_pickable()` to make them collectible:
 
 ```rust
 // src/map/rules.rs - Update the plants section in build_props_layer
