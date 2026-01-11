@@ -101,11 +101,6 @@ pub mod pickup {
 
 In Bevy, positions are measured in world units. Our tiles are 32 units wide (from `map::TILE_SIZE`), so a radius of 40 units means the player can pick up items from slightly more than one tile away. Not too far, not too close.
 
-```comic
-left_girl_sad: I set the radius to 1000 and now I'm collecting everything on screen!
-right_guy_laugh: Magneto's origin story: one typo away from world domination.
-```
-
 ## Building the Inventory System
 
 Create a new folder `src/inventory/` for our inventory module.
@@ -258,10 +253,6 @@ So the pickup system can log "Picked up Herb (total: 3)". It's a small quality-o
 
 It formats the inventory for display: "Herb: 3, Flower: 1, Wood: 2". We sort the items alphabetically so the order is consistent. Later, you could show this in a UI panel or debug overlay.
 
-```comic
-left_guy_smile: I collected 50 herbs but forgot to save before the boss fight.
-right_girl_laugh: Speedrunning heartbreak, I see.
-```
 
 ## Pickup Detection System
 
@@ -943,11 +934,6 @@ Walk near a plant or mushroom. It should disappear, and you'll see a log message
  Picked up Herb (total: 2) — inventory: Flower: 1, Herb: 2
 ```
 
-```comic
-left_girl_smile: I spent 3 hours collecting herbs instead of doing the main quest.
-right_guy_laugh: Ah yes, professional procrastination. A true gamer's specialty.
-```
-
 ## Zooming In and Following the Player
 
 Right now, our game window shows the **entire map** at once. While functional, this has no sense of exploration. You can see everything at a glance, removing the mystery
@@ -996,11 +982,6 @@ pub mod camera {
 
 Think of it like this: if the camera is at position (0, 0) and the player is at (100, 0), with a lerp factor of 0.6, the camera moves to (60, 0) in the first frame. Next frame, the player is still at (100, 0), but the camera is at (60, 0), so it moves 60% of the remaining distance (40 units) to (84, 0). It keeps closing the gap smoothly until it catches up.
 
-```comic
-left_guy_anxious: My camera is drunk! It's swaying behind me!
-right_girl_laugh: That's not a bug, that's your CAMERA_LERP_SPEED set to 0.1!
-```
-
 We also need to update some existing values for better scaling. While we're in `config.rs`, let's update the player and map configurations:
 
 ```rust
@@ -1038,10 +1019,6 @@ pub mod map {
     pub const NODE_SIZE_Z: f32 = 1.0; // Add this line
 }
 ```
-
-**Why double the TILE_SIZE from 32.0 to 64.0?**
-
-Our original tilemap sprites are 32×32 pixels, but we're scaling them up 2× during rendering to make the world feel bigger and more detailed. By setting `TILE_SIZE` to 64.0, our collision and positioning math matches the visually rendered size, keeping everything consistent.
 
 ### Updating Map Generation
 
@@ -1142,7 +1119,8 @@ pub fn follow_camera(
     player_query: Query<&Transform, (With<Player>, Changed<Transform>)>,
     mut camera_query: Query<&mut Transform, (With<MainCamera>, Without<Player>)>,
 ) {
-    // Only update when player moves (Changed<Transform>)
+    // The Changed<Transform> filter in player_query means this system only processes
+    // when the player has moved - Bevy filters it at the query level
     let Some(player_transform) = player_query.iter().next() else {
         return;
     };
@@ -1179,7 +1157,7 @@ pub fn follow_camera(
 
 **follow_camera**: This is where the magic happens. Let's dissect it:
 
-1. **Changed filter**: `Changed<Transform>` means this system only runs when the player's position changes. No movement? No wasted CPU cycles.
+1. **Changed filter**: `Changed<Transform>` in the query definition means Bevy only calls this system when the player's transform has changed. This is a query-level optimization - if the player hasn't moved, Bevy won't even run this function. No movement? No wasted CPU cycles.
 
 2. **Early exits**: If there's no player or no camera, bail out early. Also, if the camera is already within 0.5 pixels of the player, don't bother moving it.
 
@@ -1192,8 +1170,8 @@ pub fn follow_camera(
 If the frame rate is very slow (say, 2 FPS), `delta_secs()` could be 0.5 seconds. Multiplying by `CAMERA_LERP_SPEED` (6.0) gives 3.0, which would overshoot. `.clamp(0.0, 1.0)` ensures we never move more than 100% of the distance in a single frame.
 
 ```comic
-left_guy_smile: Why is my screen shaking like an earthquake?
-right_girl_surprised: You forgot .round()! Welcome to subpixel hell!
+left_guy_sad: I removed .clamp() to make it "faster." Now my camera goes WHOOSH past the player.
+right_girl_laugh: Congratulations, you invented the hyperdrive. Wrong game though.
 ```
 
 ### Camera Module File
@@ -1284,7 +1262,7 @@ Now update the `main` function to use the `CameraPlugin` instead of the old `set
 // src/main.rs - Update the main function
 fn main() {
     App::new()
-        .insert_resource(ClearColor(Color::BLACK))
+        .insert_resource(ClearColor(Color::BLACK)) // Line update alert
         .add_plugins(
             DefaultPlugins
                 .set(AssetPlugin {
@@ -1315,9 +1293,11 @@ fn main() {
 **What changed:**
 
 1. Added `mod camera;` to declare the camera module
-2. Imported `CameraPlugin`
+2. Imported `CameraPlugin` and window mode types
 3. Added `.add_plugins(CameraPlugin)` to the app
 4. Removed `setup_camera` from the `Startup` systems (it's now inside `CameraPlugin`)
+5. Changed to **borderless fullscreen mode** - perfect for our zoomed-in camera view! It uses your full screen, making the zoomed world feel immersive without window borders getting in the way
+6. Changed background to black for a cleaner look
 
 ### Testing the Camera
 
@@ -1329,35 +1309,10 @@ cargo run
 
 Walk around using the arrow keys. Notice how the camera smoothly follows your character instead of staying fixed. The camera should feel responsive but not jarring - that's the lerp in action!
 
-**Test the new features:**
-
-1. **Zoomed View**: Everything should look bigger and more detailed now with the 2× sprite scaling
-2. **Camera Follow**: Walk to different parts of the map - the camera smoothly keeps your character centered
-3. **Smooth Movement**: The camera should feel responsive but not janky, thanks to pixel snapping and lerp
-
-Try experimenting with `CAMERA_LERP_SPEED` in `config.rs`:
-- Set it to `1.0` - camera lazily trails behind (cinematic)
-- Set it to `20.0` - camera snaps instantly to player (tight, arcade feel)
-- Set it to `6.0` - balanced, responsive but smooth (our default)
-
 ```comic
-left_girl_smile: The camera follows me now! I feel like a celebrity!
-right_guy_laugh: Wait till you add a dozen fans chasing you. Then you'll feel famous.
+left_girl_smile: The camera follows me everywhere now! I'm basically a celebrity!
+right_guy_laugh: You have exactly zero viewers, but hey, at least your camera's loyal. That's one fan!
 ```
-
-
-
-
-
-
-## What's Next?
-
-You've built a working inventory system! But it's invisible—players can't see what they've collected. In Chapter 6, we'll build a UI overlay that displays the inventory on screen, add item icons, and create a crafting system that combines items into new ones.
-
-For now, experiment with your pickup system:
-- Try changing `DEFAULT_RADIUS` in `config.rs` to make pickups easier or harder
-- Add new `ItemKind` variants for different collectibles
-- Modify the `summary` format to show items in a different order
 
 <div style="margin: 20px 0; padding: 15px; background-color: #d4edda; border-radius: 8px; border-left: 4px solid #28a745;">
 <strong>Stay Tuned for Chapter 6!</strong> <br> <a href="https://discord.com/invite/cD9qEsSjUH">Join our community</a> to get notified when the next chapter drops, where we'll build a visual inventory UI and crafting system.
