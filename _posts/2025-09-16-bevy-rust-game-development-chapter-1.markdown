@@ -7,7 +7,7 @@ excerpt: "Learn to build a video game from scratch using Rust and Bevy. This fir
 ---
 
 
-This is chapter 1 of my rust-bevy tutorial series "The Impatient Programmer's Guide to Bevy and Rust: Build a Video Game from Scratch". I will be going in-depth into bevy and game development in this series, also cover NPCs powered by AI Agents. [Join our community](https://discord.com/invite/cD9qEsSjUH) to be updated on new releases on this series. Source code for this chapter is [available here](https://github.com/jamesfebin/BevyGameChapter1/).
+This is chapter 1 of my rust-bevy tutorial series "The Impatient Programmer's Guide to Bevy and Rust: Build a Video Game from Scratch". I will be going in-depth into bevy and game development in this series, also cover NPCs powered by AI Agents. [Join our community](https://discord.com/invite/cD9qEsSjUH) to be updated on new releases on this series. Source code for this chapter is [available here](https://github.com/jamesfebin/ImpatientProgrammerBevyRust).
 
 Here's what you will be able to achieve by the end of this tutorial.
 
@@ -666,7 +666,7 @@ Let's run it.
 
 We'll use the Universal LPC SpriteSheet Generator to give our character some personality. You can remix body parts, clothes, and colors at [this link](https://liberatedpixelcup.github.io/Universal-LPC-Spritesheet-Character-Generator/#?body=Body_color_light&head=Human_male_light) and export a full spritesheet.
 
-For this project the spritesheet is already included in the [repo](https://github.com/jamesfebin/BevyGameChapter1/). Drop the provided image files into `src/assets` so Bevy can find them when the game runs. You will need to create the `assets` directory inside the src folder.
+For this project the spritesheet is already included in the [repo](https://github.com/jamesfebin/ImpatientProgrammerBevyRust). Drop the provided image files into `src/assets` so Bevy can find them when the game runs. You will need to create the `assets` directory inside the src folder.
 
 ![Universal LPC Spritesheet Generator]({{ "/assets/book_assets/universal-sprite-sheet-generator.png" | relative_url }})
 
