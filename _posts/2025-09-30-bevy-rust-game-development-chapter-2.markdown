@@ -464,7 +464,7 @@ Instead of reinventing the wheel, we'll use a library that handles the WFC algor
 
 ## Setting Up Our Toolkit
 
-Let's add the procedural generation library to our project. We'll be using the `bevy_procedural_tilemaps` [crate](https://crates.io/crates/bevy_procedural_tilemaps), which I built by forking `ghx_proc_gen` [library](https://crates.io/crates/ghx_proc_gen). I created this fork primarily to ensure compatibility with Bevy 0.17 and to simplify this tutorial. 
+Let's add the procedural generation library to our project. We'll be using the `bevy_procedural_tilemaps` [crate](https://crates.io/crates/bevy_procedural_tilemaps), which I built by forking `ghx_proc_gen` [library](https://crates.io/crates/ghx_proc_gen). I created this fork primarily to ensure compatibility with latest Bevy and to simplify this tutorial. 
 
 If you need advanced features, check out the original `ghx_proc_gen` [crate](https://crates.io/crates/ghx_proc_gen) by Guillaume Henaux, which includes 3D capabilities and debugging tools.
 
@@ -479,8 +479,8 @@ version = "0.1.0"
 edition = "2024" 
 
 [dependencies]
-bevy = "0.17.2" // Line update alert 
-bevy_procedural_tilemaps = "0.1.3" // Line update alert
+bevy = "0.18" // Line update alert 
+bevy_procedural_tilemaps = "0.2.0" // Line update alert
 ```
 
 ## Bevy Procedural Tilemaps

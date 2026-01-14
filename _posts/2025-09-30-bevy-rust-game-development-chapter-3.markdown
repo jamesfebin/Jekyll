@@ -1175,7 +1175,7 @@ We've built all the pieces: animation, movement, spawning, and character switchi
 First, we need to add dependencies that let Bevy load `.ron` files and serialize/deserialize our data structures. Open `Cargo.toml` and add these to your `[dependencies]` section:
 
 ```toml
-bevy_common_assets = { version = "0.14", features = ["ron"] }
+bevy_common_assets = { version = "0.15.0-rc.1", features = ["ron"] }
 serde = { version = "1.0", features = ["derive"] }
 ```
 

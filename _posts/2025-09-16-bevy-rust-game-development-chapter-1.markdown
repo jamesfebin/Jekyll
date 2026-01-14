@@ -27,7 +27,7 @@ If you haven't setup rust yet, please follow the [official guide](https://www.ru
 2. Open `Cargo.toml` and add Bevy:
    ```toml
    [dependencies]
-   bevy = "0.17.2"
+   bevy = "0.18"
    ```
 <br>
 
